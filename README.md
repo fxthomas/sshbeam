@@ -2,6 +2,8 @@
 
 SSH Beam is a simple Android app that can _share_ things to an SSH server.
 
+![Screenshot](images/screenshot.png)
+
   * Find something to share
   * Click *Share* and select *SSH Beam*
   * Enter the required information
@@ -10,8 +12,6 @@ SSH Beam is a simple Android app that can _share_ things to an SSH server.
 
 At the moment, I'm only checking if the file exists on the server (in which
 case I don't overwrite), but that's it. Use at your own risk.
-
-![Screenshot](images/screenshot.png)
 
 ## Use cases
 
