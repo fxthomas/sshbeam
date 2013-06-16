@@ -1,11 +1,9 @@
-SSH Beam is a simple Android app with which you can "Share" things to an SSH server,
-via the SFTP protocol (you know, the one used by `scp`).
+SSH Beam is a simple Android app that can _share_ things to an SSH server.
 
   * Find something to share
-  * Click **Share**
-  * Select **SSH BEAM**
-  * Enter the required info (server, user name,...)
-  * Click **Send**
+  * Click *Share* and select *SSH Beam*
+  * Enter the required information
+  * Click *Send*
   * Wait until done
 
 At the moment, I'm only checking if the file exists on the server (in which
