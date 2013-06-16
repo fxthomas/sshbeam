@@ -19,6 +19,8 @@ import scala.collection.JavaConversions._
 
 import ExecutionContext.Implicits.global
 
+case class FileExistsException(filename: String) extends Exception(s"$filename already exists on the remote server")
+
 class BeamParams extends PreferenceFragment {
   override def onCreate(savedInstanceState: Bundle) = {
     super.onCreate(savedInstanceState)
@@ -151,6 +153,16 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
       channel.connect
       channel.cd(destination)
 
+      // Check if the file exists
+      val exists: Boolean = try {
+        channel.lstat(filename); true
+      } catch {
+        case e: SftpException if e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE => false
+      }
+
+      // If it exists, fail
+      if (exists) throw FileExistsException(filename)
+
       // Transfer the file
       channel.put(is, filename)
 
@@ -213,17 +225,21 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
   }
 
   def getFile(contentUri: Uri): Option[File] = {
-    val resolver = getContentResolver
+    if (contentUri.getScheme == "content") {
+      val resolver = getContentResolver
 
-    for (cr <- Option(resolver.query(
-      contentUri, Array(MediaStore.MediaColumns.DATA),
-      null, null, null))) {
+      for (cr <- Option(resolver.query(
+        contentUri, Array(MediaStore.MediaColumns.DATA),
+        null, null, null))) {
 
-      try {
-        if (cr.moveToFirst) return Some(new File(cr.getString(0)))
-      } finally {
-        cr.close
+        try {
+          if (cr.moveToFirst) return Some(new File(cr.getString(0)))
+        } finally {
+          cr.close
+        }
       }
+    } else if (contentUri.getScheme == "file") {
+      return Some(new File(contentUri.getLastPathSegment))
     }
 
     return None

@@ -21,3 +21,6 @@ libraryDependencies += "com.jcraft" % "jsch" % "0.1.50"
 
 // Scaloid
 libraryDependencies += "org.scaloid" % "scaloid" % "1.1_8_2.10"
+
+// Proguard options
+proguardOptions += "-keep class com.jcraft.jsch.** { *; }"
