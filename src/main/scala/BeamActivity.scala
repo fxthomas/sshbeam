@@ -77,8 +77,7 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
           val trimmed = text.trim
           val length = trimmed.length
           trimmed.substring(0, if (length < 10) length else 10)
-                 .replaceAll("[\\W]+|_", "-")
-        }
+        }.replaceAll("[\\W]+|_", "-")
 
       // Add an extension
       val ext = intent.getType match {
