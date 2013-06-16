@@ -1,0 +1,53 @@
+<PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
+    <PreferenceCategory
+        android:title="Transfer"
+        android:key="ssh_transfer">
+
+        <EditTextPreference
+            android:key="ssh_transfer_filename"
+            android:summary="Destination filename on the remote server"
+            android:inputType="textNoSuggestions"
+            android:title="Name" />
+
+        <EditTextPreference
+            android:key="ssh_transfer_destination"
+            android:summary="Destination directory on the remote server"
+            android:inputType="textNoSuggestions"
+            android:title="Destination" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+      android:title="Server"
+      android:key="ssh_server">
+
+        <EditTextPreference
+            android:key="ssh_server_address"
+            android:inputType="textNoSuggestions"
+            android:title="Address" />
+
+        <EditTextPreference
+          android:key="ssh_server_port"
+          android:title="Remote port"
+          android:inputType="number"
+          android:defaultValue="22" />
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+      android:title="Authentication"
+      android:key="ssh_auth">
+
+        <EditTextPreference
+          android:key="ssh_auth_username"
+          android:inputType="textNoSuggestions"
+          android:title="Username" />
+
+        <CheckBoxPreference
+          android:key="ssh_auth_save_password"
+          android:title="Remember password"
+          android:summary="The password is saved in plain text in the app's preferences. Don't enable if you need security!"
+          android:defaultValue="false" />
+
+    </PreferenceCategory>
+</PreferenceScreen>
