@@ -10,7 +10,7 @@ import android.view._
 
 import com.jcraft.jsch._
 import java.util.Properties
-import java.io.{File, InputStream}
+import java.io.{File, InputStream, FileOutputStream, PrintStream}
 
 import org.scaloid.common._
 
@@ -57,7 +57,49 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
     setContentView(R.layout.main)
 
     // Read the file URI from the intent
-    val uri = getIntent.getParcelableExtra(Intent.EXTRA_STREAM).asInstanceOf[Uri]
+    val intent = getIntent
+    val uri = Option(
+      intent.getParcelableExtra(Intent.EXTRA_STREAM).asInstanceOf[Uri]) getOrElse {
+
+      // If we can't find the URI, then somebody shared text directly.
+      // In which case, we use that text to create a new file.
+      val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+
+      // If the user shared _nothing_, send a toast and finish
+      if (text == null) {
+        toast("Nothing to share")
+        finish
+      }
+
+      // Create the title from either the intent or the text
+      val title = Option(intent.getStringExtra(Intent.EXTRA_SUBJECT))
+        .getOrElse {
+          val trimmed = text.trim
+          val length = trimmed.length
+          trimmed.substring(0, if (length < 10) length else 10)
+                 .replaceAll("[\\W]+|_", "-")
+        }
+
+      // Add an extension
+      val ext = intent.getType match {
+        case "text/html" => "html"
+        case "text/xml" => "xml"
+        case "application/xml" => "xml"
+        case _ => "txt"
+      }
+
+      // Create a temporary file
+      val outdir = context.getCacheDir
+      val outfile = new File(context.getCacheDir, s"${title}.${ext}")
+
+      // Write to it
+      val fs = new PrintStream(new FileOutputStream(outfile), true, "UTF-8")
+      fs.print(text)
+      fs.close
+
+      // Return an URI
+      Uri.fromFile(outfile)
+    }
 
     // Register a pref change listener
     prefs.registerOnSharedPreferenceChangeListener(this)
