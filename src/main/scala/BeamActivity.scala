@@ -42,6 +42,26 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
     }
   }
 
+  case class Monitor(spinner: ProgressDialog) extends SftpProgressMonitor {
+
+    var size = 1L
+
+    def end = runOnUiThread(spinner.dismiss)
+
+    def count(cnt: Long): Boolean = {
+      runOnUiThread { spinner incrementProgressBy cnt.toInt }
+      return true
+    }
+
+    def init(op: Int, src: String, dest: String, max: Long) {
+      runOnUiThread {
+        spinner setProgress 0
+        spinner setMax size.toInt
+        spinner show
+      }
+    }
+  }
+
   implicit val context = this
 
   def filename = prefs.getString("ssh_transfer_filename", "")
@@ -264,6 +284,16 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
     auth: String
   ) {
 
+    val key = auth match {
+      case "password" => None
+      case "public_key" => {
+        val dlg = spinnerDialog("SSH Beam", "Generating key pair...")
+        val key = future { generateKeyPair(server, username) }
+        key onComplete { case _ => runOnUiThread(dlg.dismiss) }
+        Some(key)
+      }
+    }
+
     case class HardcodedUserInfo(password: String) extends UserInfo {
       def getPassphrase = null
       def getPassword = password
@@ -273,19 +303,19 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
       def showMessage(s: String) = toast(s)
     }
 
-    def sendPublicKey: Future[Unit] = future {
+    def sendPublicKey(keyfile: File, monitor: Monitor): Future[Unit] = future {
       val jsch = new JSch
-      jsch.addIdentity(generateKeyPair(server, username).getAbsolutePath)
-      send(jsch.getSession(username, server, port))
+      jsch.addIdentity(keyfile.getAbsolutePath)
+      send(jsch.getSession(username, server, port), monitor)
     }
 
-    def sendPassword(password: String): Future[Unit] = future {
+    def sendPassword(password: String, monitor: Monitor): Future[Unit] = future {
       val session = (new JSch).getSession(username, server, port)
       session.setUserInfo(HardcodedUserInfo(password))
-      send(session)
+      send(session, monitor)
     }
 
-    def send(session: Session) {
+    def send(session: Session, monitor: Monitor) {
 
       // Write something in the logs
       info(s"Starting SFTP transfer ($auth)")
@@ -295,6 +325,11 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
       config.setProperty("StrictHostKeyChecking", "no")
       session.setConfig(config)
       session.connect()
+
+      // Set monitor size
+      val fd = getContentResolver.openFileDescriptor(uri, "r")
+      monitor.size = fd.getStatSize
+      fd.close
 
       // Open the SFTP channel and the input stream
       val is = getContentResolver.openInputStream(uri)
@@ -313,7 +348,7 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
       if (exists) throw FileExistsException(filename)
 
       // Transfer the file
-      channel.put(is, filename)
+      channel.put(is, filename, monitor)
 
       // Close everything
       channel.disconnect
@@ -329,13 +364,21 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
       // Else, try connecting
       else {
 
-        // Show the loading spinner
-        val dlg = spinnerDialog("SSH Beam", "Transfer in progress...")
+        // Create a spinner
+        val spinner = new ProgressDialog(ctx)
+        spinner setProgressStyle ProgressDialog.STYLE_HORIZONTAL
+        spinner setTitle "SSH Beam"
+        spinner setMessage "Transfer in progress..."
+        spinner setIndeterminate false
+        spinner setMax 100
+
+        // Create a monitor
+        val monitor = Monitor(spinner)
 
         // Send the file
         val fsend = auth match {
-          case "password" => sendPassword(password.get)
-          case "public_key" => sendPublicKey
+          case "password" => sendPassword(password.get, monitor)
+          case "public_key" => key.get.flatMap(sendPublicKey(_, monitor))
           case _ => throw new Exception("Oops, wrong auth method!")
         }
 
@@ -348,7 +391,7 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
 
           // Notify the user and close the activity
           runOnUiThread {
-            dlg.dismiss
+            spinner.dismiss
             toast("Transfer successful")
             finish
           }
@@ -357,11 +400,9 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
         // Inform the user and go back to the activity on failure
         fsend onFailure { case e: Throwable =>
           runOnUiThread {
-            // Send a toast
+            // Send a toast and dismiss the spinner
             toast("Transfer failed: " + e.getMessage)
-
-            // Show the main UI
-            dlg.dismiss
+            spinner.dismiss
 
             // Ask for the password again
             if (auth == "password") ask(password)
