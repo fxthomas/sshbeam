@@ -14,19 +14,14 @@ import java.io.{File, InputStream, FileOutputStream, PrintStream}
 
 import org.scaloid.common._
 
+import scala.io.Source
 import scala.concurrent._
 import scala.collection.JavaConversions._
 
 import ExecutionContext.Implicits.global
 
 case class FileExistsException(filename: String) extends Exception(s"$filename already exists on the remote server")
-
-class BeamParams extends PreferenceFragment {
-  override def onCreate(savedInstanceState: Bundle) = {
-    super.onCreate(savedInstanceState)
-    addPreferencesFromResource(R.xml.params)
-  }
-}
+case class MissingParameterException(message: String) extends Exception(message)
 
 class BeamActivity
 extends SActivity
@@ -39,6 +34,14 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
   lazy val vprogress = findView(TR.progress)
   lazy val vcontent = findView(TR.content)
 
+  object BeamParams extends PreferenceFragment {
+    override def onCreate(savedInstanceState: Bundle) = {
+      super.onCreate(savedInstanceState)
+      addPreferencesFromResource(R.xml.params)
+      setupPreferences
+    }
+  }
+
   implicit val context = this
 
   def filename = prefs.getString("ssh_transfer_filename", "")
@@ -50,6 +53,51 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
   def password = if (shouldSavePassword) {
       Some(prefs.getString("ssh_auth_password", ""))
     } else None
+
+  def authMethod = prefs.getString("ssh_auth_method", "password")
+
+  override def onCreateOptionsMenu(menu: Menu): Boolean = {
+    getMenuInflater.inflate(R.menu.beam_menu, menu)
+    true
+  }
+
+  override def onOptionsItemSelected(item: MenuItem): Boolean = item.getItemId match {
+    case R.id.ui_sharekey => {
+
+      // Load the public key
+      val pubkey: Future[String] = future {
+        val kf = generateKeyPair(server, username)
+        val ki = openFileInput(kf.getName + ".pub")
+        val pubkey = Source.fromInputStream(ki).mkString
+        ki.close
+        pubkey
+      }
+
+      // Show the spinner dialog
+      val dlg = spinnerDialog("SSH Beam", "Generating key pair...")
+
+      // Share it
+      pubkey onSuccess {
+        case key: String => runOnUiThread {
+          val intent = new Intent
+          intent.setAction(Intent.ACTION_SEND)
+          intent.putExtra(Intent.EXTRA_TEXT, key)
+          intent.setType("text/plain")
+          runOnUiThread(dlg.dismiss)
+          startActivity(intent)
+        }
+      }
+
+      // If the generation failed, display a toast
+      pubkey onFailure {
+        case exc: MissingParameterException =>
+          runOnUiThread(dlg.dismiss)
+          toast(exc.getMessage)
+      }
+    }
+
+    return true
+  }
 
   override def onCreate(bundle: Bundle) {
     // Create the activity
@@ -106,10 +154,11 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
     // Set the preferences
     val edit = prefs.edit
     edit.putString("ssh_transfer_filename", getFile(uri).map(_.getName).getOrElse(""))
+    if (authMethod == null) edit.putString("ssh_auth_method", "password")
     edit.commit
 
     // Setup the param list
-    getFragmentManager.beginTransaction.add(R.id.params, new BeamParams).commit
+    getFragmentManager.beginTransaction.add(R.id.params, BeamParams).commit
 
     // Do nothing if cancel is clicked
     vcancel.onClick(finish)
@@ -131,17 +180,11 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
             destination,
             server,
             port,
-            username)
+            username,
+            authMethod)
 
-        // Try getting the password
-        password match {
-
-          // If we found it, start transferring
-          case Some(p) => transfer.start(p)
-
-          // If not, ask the user for his password
-          case None => transfer.ask("")
-        }
+        // Start the transfer
+        transfer.start(password)
       }
     }
   }
@@ -154,8 +197,55 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
 
   def clearPassword = savePassword("")
 
+  def enablePasswordPref(b: Boolean) =
+    for (p <- Option(BeamParams.findPreference("ssh_auth_save_password")))
+      p.setEnabled(b)
+
+  def generateKeyPair(server: String, username: String) = {
+    // Preflight checks
+    if (server == null || username == null || server.isEmpty || username.isEmpty)
+      throw MissingParameterException("Please configure your server address and username!")
+
+    // Generate a canonical name for the key pair
+    val fserver = "[^\\w]+".r.replaceAllIn(server, "_")
+    val fusername = "[^\\w]+".r.replaceAllIn(username, "_")
+    val filename = s"$fserver-$fusername"
+
+    // If the key isn't generated, generate it, write it and return it
+    if (!(fileList contains filename)) {
+
+      // Generate the key
+      val key = KeyPair.genKeyPair(new JSch, KeyPair.DSA)
+
+      // Write private key
+      val fpriv = openFileOutput(filename, Context.MODE_PRIVATE)
+      key.writePrivateKey(fpriv)
+      fpriv.close
+
+      // Write public key
+      val fpub = openFileOutput(filename + ".pub", Context.MODE_PRIVATE)
+      key.writePublicKey(fpub, "sshbeam@android")
+      fpub.close
+    }
+
+    // Return the name of the private key file
+    new File(getFilesDir, filename)
+  }
+
+  def setupPreferences = {
+    authMethod match {
+      case "public_key" => enablePasswordPref(false)
+      case "password" => enablePasswordPref(true)
+      case _ => throw new Exception("Ooops, wrong auth_method")
+    }
+  }
+
   def onSharedPreferenceChanged(pref: SharedPreferences, key: String) {
-    if (key == "ssh_auth_save_password") clearPassword
+    key match {
+      case "ssh_auth_save_password" => clearPassword
+      case "ssh_auth_method" => setupPreferences
+      case _ => ()
+    }
   }
 
   case class Transfer(
@@ -164,7 +254,8 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
     destination: String,
     server: String,
     port: Int,
-    username: String
+    username: String,
+    auth: String
   ) {
 
     case class HardcodedUserInfo(password: String) extends UserInfo {
@@ -173,14 +264,25 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
       def promptPassword(s: String) = true
       def promptPassphrase(s: String) = true
       def promptYesNo(s: String) = true
-      def showMessage(s: String) = runOnUiThread(toast(s))
+      def showMessage(s: String) = toast(s)
     }
 
-    def send(password: String): Future[Unit] = future {
+    def sendPublicKey: Future[Unit] = future {
+      val jsch = new JSch
+      jsch.addIdentity(generateKeyPair(server, username).getAbsolutePath)
+      send(jsch.getSession(username, server, port))
+    }
 
-      // Create a session
+    def sendPassword(password: String): Future[Unit] = future {
       val session = (new JSch).getSession(username, server, port)
       session.setUserInfo(HardcodedUserInfo(password))
+      send(session)
+    }
+
+    def send(session: Session) {
+
+      // Write something in the logs
+      info(s"Starting SFTP transfer ($auth)")
 
       // Configure the connection
       val config = new Properties
@@ -213,29 +315,34 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
       is.close
     }
 
-    def start(password: String): Unit = {
+    def start(password: Option[String]): Unit = {
 
       // If password is empty, ask
-      if (password.isEmpty) ask("")
+      if (auth == "password" && !password.isDefined) ask(password)
 
       // Else, try connecting
       else {
 
         // Show the loading spinner
-        vprogress.setVisibility(View.VISIBLE)
-        vcontent.setVisibility(View.GONE)
+        val dlg = spinnerDialog("SSH Beam", "Transfer in progress...")
 
         // Send the file
-        val fsend = send(password)
+        val fsend = auth match {
+          case "password" => sendPassword(password.get)
+          case "public_key" => sendPublicKey
+          case _ => throw new Exception("Oops, wrong auth method!")
+        }
 
         // Inform the user and finish the activity on success
         fsend onSuccess { case _ =>
 
           // Save password if the "remember" flag is set
-          if (shouldSavePassword) savePassword(password)
+          if (auth == "password" && shouldSavePassword)
+            savePassword(password.get)
 
           // Notify the user and close the activity
           runOnUiThread {
+            dlg.dismiss
             toast("Transfer successful")
             finish
           }
@@ -248,19 +355,18 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
             toast("Transfer failed: " + e.getMessage)
 
             // Show the main UI
-            vprogress.setVisibility(View.GONE)
-            vcontent.setVisibility(View.VISIBLE)
+            dlg.dismiss
 
             // Ask for the password again
-            ask(password)
+            if (auth == "password") ask(password)
           }
         }
       }
     }
 
-    def ask(previous: String = ""): Unit = {
-      InputDialog.show("Enter password", previous) {
-        p => start(p)
+    def ask(previous: Option[String] = None): Unit = {
+      InputDialog.show("Enter password", previous.getOrElse("")) {
+        p => start(Some(p))
       }
     }
   }

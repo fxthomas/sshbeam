@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string-array name="ssh_auth_methods">
+        <item>Password</item>
+        <item>Public key</item>
+    </string-array>
+    <string-array name="ssh_auth_methods_values">
+        <item>password</item>
+        <item>public_key</item>
+    </string-array>
+</resources>
