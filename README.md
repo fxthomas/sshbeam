@@ -13,9 +13,6 @@ SSH Beam is a simple Android app that can _share_ things to an SSH server.
 At the moment, I'm only checking if the file exists on the server (in which
 case I don't overwrite), but that's it. Use at your own risk.
 
-Also, you probably shouldn't send large files with this, since there's no
-progression indicator at all yet.
-
 ## Use cases
 
 I just built this to scratch an itch, but you can use it for a whole lot of things :
@@ -24,6 +21,13 @@ I just built this to scratch an itch, but you can use it for a whole lot of thin
     server, and then publish posts with SSH Beam from your Android device.
   * Send torrents to a directory watched by [rTorrent](http://libtorrent.rakshasa.no/)
   * ...and much more!
+
+## Public keys
+
+SSH Beam can generate public keys, which you can then setup on your server. Use
+the "Share public key" menu item to send them by any way you want.
+
+![Public keys](images/screenshot-pubkey.png)
 
 ## Building
 
