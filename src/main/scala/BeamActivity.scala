@@ -25,8 +25,7 @@ case class MissingParameterException(message: String) extends Exception(message)
 
 class BeamActivity
 extends SActivity
-with TypedActivity
-with SharedPreferences.OnSharedPreferenceChangeListener {
+with TypedActivity {
 
   lazy val prefs = PreferenceManager.getDefaultSharedPreferences(this)
   lazy val vcancel = findView(TR.cancel)
@@ -34,11 +33,55 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
   lazy val vprogress = findView(TR.progress)
   lazy val vcontent = findView(TR.content)
 
-  object BeamParams extends PreferenceFragment {
+  object BeamParams extends PreferenceFragment with SharedPreferences.OnSharedPreferenceChangeListener {
     override def onCreate(savedInstanceState: Bundle) = {
+      // Prepare the layout
       super.onCreate(savedInstanceState)
       addPreferencesFromResource(R.xml.params)
+
+      // Register a pref change listener
+      getPreferenceManager.getSharedPreferences.registerOnSharedPreferenceChangeListener(this)
+    }
+
+    override def onResume = {
+      // Call super
+      super.onResume
+
+      // Set default preferences
       setupPreferences
+
+      // Set default filename
+      val pref = BeamParams.findPreference("ssh_transfer_filename").asInstanceOf[EditTextPreference]
+      val filename = getFile(uri).map(_.getName).getOrElse("")
+      pref.setText(filename)
+    }
+
+    def setupPreferences = {
+      authMethod match {
+        case "public_key" => enablePasswordPref(false)
+        case "password" => enablePasswordPref(true)
+        case _ => throw new Exception("Ooops, wrong auth_method")
+      }
+    }
+
+    def savePassword(p: String) {
+      val edit = prefs.edit
+      edit.putString("ssh_auth_password", p)
+      edit.commit
+    }
+
+    def clearPassword = savePassword("")
+
+    def enablePasswordPref(b: Boolean) =
+      for (p <- Option(BeamParams.findPreference("ssh_auth_save_password")))
+        p.setEnabled(b)
+
+    def onSharedPreferenceChanged(pref: SharedPreferences, key: String) {
+      key match {
+        case "ssh_auth_save_password" => clearPassword
+        case "ssh_auth_method" => setupPreferences
+        case k => ()
+      }
     }
   }
 
@@ -64,7 +107,10 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
 
   implicit val context = this
 
-  def filename = prefs.getString("ssh_transfer_filename", "")
+  def filename =
+    BeamParams.findPreference("ssh_transfer_filename")
+              .asInstanceOf[EditTextPreference].getText
+
   def destination = prefs.getString("ssh_transfer_destination", "")
   def server = prefs.getString("ssh_server_address", "")
   def port = prefs.getString("ssh_server_port", "22").toInt
@@ -75,6 +121,10 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
     } else None
 
   def authMethod = prefs.getString("ssh_auth_method", "password")
+
+  lazy val uri = Option(getIntent
+      .getParcelableExtra(Intent.EXTRA_STREAM)
+      .asInstanceOf[Uri]) getOrElse { intentToFile(getIntent) }
 
   override def onCreateOptionsMenu(menu: Menu): Boolean = {
     getMenuInflater.inflate(R.menu.beam_menu, menu)
@@ -130,56 +180,8 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
     super.onCreate(bundle)
     setContentView(R.layout.main)
 
-    // Read the file URI from the intent
-    val intent = getIntent
-    val uri = Option(
-      intent.getParcelableExtra(Intent.EXTRA_STREAM).asInstanceOf[Uri]) getOrElse {
-
-      // If we can't find the URI, then somebody shared text directly.
-      // In which case, we use that text to create a new file.
-      val text = intent.getStringExtra(Intent.EXTRA_TEXT)
-
-      // If the user shared _nothing_, send a toast and finish
-      if (text == null) {
-        toast("Nothing to share")
-        finish
-      }
-
-      // Create the title from either the intent or the text
-      val title = Option(intent.getStringExtra(Intent.EXTRA_SUBJECT))
-        .getOrElse {
-          val trimmed = text.trim
-          val length = trimmed.length
-          trimmed.substring(0, if (length < 10) length else 10)
-        }.replaceAll("[\\W]+|_", "-")
-
-      // Add an extension
-      val ext = intent.getType match {
-        case "text/html" => "html"
-        case "text/xml" => "xml"
-        case "application/xml" => "xml"
-        case _ => "txt"
-      }
-
-      // Create a temporary file
-      val outdir = context.getCacheDir
-      val outfile = new File(context.getCacheDir, s"${title}.${ext}")
-
-      // Write to it
-      val fs = new PrintStream(new FileOutputStream(outfile), true, "UTF-8")
-      fs.print(text)
-      fs.close
-
-      // Return an URI
-      Uri.fromFile(outfile)
-    }
-
-    // Register a pref change listener
-    prefs.registerOnSharedPreferenceChangeListener(this)
-
-    // Set the preferences
+    // Set default prefs
     val edit = prefs.edit
-    edit.putString("ssh_transfer_filename", getFile(uri).map(_.getName).getOrElse(""))
     if (authMethod == null) edit.putString("ssh_auth_method", "password")
     edit.commit
 
@@ -215,17 +217,45 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
     }
   }
 
-  def savePassword(p: String) {
-    val edit = prefs.edit
-    edit.putString("ssh_auth_password", p)
-    edit.commit
+  def intentToFile(intent: Intent) = {
+    // If we can't find the URI, then somebody shared text directly.
+    // In which case, we use that text to create a new file.
+    val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+
+    // If the user shared _nothing_, send a toast and finish
+    if (text == null) {
+      toast("Nothing to share")
+      finish
+    }
+
+    // Create the title from either the intent or the text
+    val title = Option(intent.getStringExtra(Intent.EXTRA_SUBJECT))
+      .getOrElse {
+        val trimmed = text.trim
+        val length = trimmed.length
+        trimmed.substring(0, if (length < 10) length else 10)
+      }.replaceAll("[\\W]+|_", "-")
+
+    // Add an extension
+    val ext = intent.getType match {
+      case "text/html" => "html"
+      case "text/xml" => "xml"
+      case "application/xml" => "xml"
+      case _ => "txt"
+    }
+
+    // Create a temporary file
+    val outdir = context.getCacheDir
+    val outfile = new File(context.getCacheDir, s"${title}.${ext}")
+
+    // Write to it
+    val fs = new PrintStream(new FileOutputStream(outfile), true, "UTF-8")
+    fs.print(text)
+    fs.close
+
+    // Return an URI
+    Uri.fromFile(outfile)
   }
-
-  def clearPassword = savePassword("")
-
-  def enablePasswordPref(b: Boolean) =
-    for (p <- Option(BeamParams.findPreference("ssh_auth_save_password")))
-      p.setEnabled(b)
 
   def generateKeyPair(server: String, username: String) = {
     // Preflight checks
@@ -256,22 +286,6 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
 
     // Return the name of the private key file
     new File(getFilesDir, filename)
-  }
-
-  def setupPreferences = {
-    authMethod match {
-      case "public_key" => enablePasswordPref(false)
-      case "password" => enablePasswordPref(true)
-      case _ => throw new Exception("Ooops, wrong auth_method")
-    }
-  }
-
-  def onSharedPreferenceChanged(pref: SharedPreferences, key: String) {
-    key match {
-      case "ssh_auth_save_password" => clearPassword
-      case "ssh_auth_method" => setupPreferences
-      case _ => ()
-    }
   }
 
   case class Transfer(
@@ -387,7 +401,7 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
 
           // Save password if the "remember" flag is set
           if (auth == "password" && shouldSavePassword)
-            savePassword(password.get)
+            BeamParams.savePassword(password.get)
 
           // Notify the user and close the activity
           runOnUiThread {

@@ -7,6 +7,8 @@
             android:key="ssh_transfer_filename"
             android:summary="Destination filename on the remote server"
             android:inputType="textNoSuggestions"
+            android:persistent="false"
+            android:defaultValue="untitled.txt"
             android:title="Name" />
 
         <EditTextPreference
