@@ -64,6 +64,12 @@ with SharedPreferences.OnSharedPreferenceChangeListener {
   override def onOptionsItemSelected(item: MenuItem): Boolean = item.getItemId match {
     case R.id.ui_sharekey => {
 
+      // Show a toast if the configuration is bad
+      if (server == null || username == null || server.isEmpty || username.isEmpty) {
+        toast("Please configure your server address and username!")
+        return true
+      }
+
       // Load the public key
       val pubkey: Future[String] = future {
         val kf = generateKeyPair(server, username)

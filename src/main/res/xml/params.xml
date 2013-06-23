@@ -48,7 +48,7 @@
           android:entries="@array/ssh_auth_methods"
           android:entryValues="@array/ssh_auth_methods_values"
           android:title="Authentication method"
-          android:summary="Generated public keys are unique for each server and username couple. Use the 'Share public key' menu item to send it to your server." />
+          android:defaultValue="password" />
 
         <CheckBoxPreference
           android:key="ssh_auth_save_password"
