@@ -101,12 +101,10 @@ with TypedActivity {
       else if (beamParams.username == "") toast("Username can't be empty")
       else {
 
-        // Set the filename
-        share.foreach(_.name = beamParams.filename)
-
         // Prepare the transfer
         val transfer = beamTransfer.transfer(
             share.get,
+            beamParams.filename,
             beamParams.destination,
             beamParams.server,
             beamParams.port,

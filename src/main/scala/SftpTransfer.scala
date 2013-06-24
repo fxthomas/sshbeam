@@ -14,7 +14,7 @@ case class HardcodedUserInfo(password: String) extends UserInfo {
   def showMessage(s: String) = System.out.println(s)
 }
 
-case class FileExistsException(filename: String) extends Exception(s"$filename already exists on the remote server")
+case class FileExistsException(filename: String) extends Exception("File already exists on the remote server")
 
 class SftpSession(session: Session) {
   // Configure the session

@@ -1,5 +1,7 @@
 package io.github.fxthomas.sshbeam
 
+import android.os.Parcelable
+import android.os.Parcel
 import android.content.Intent
 import android.content.Context
 import android.net.Uri
@@ -59,15 +61,15 @@ object SharedObject {
 }
 
 trait SharedObject {
-  val size: Long
-  var name: String
-  def inputStream: InputStream
+  def size(implicit ctx: Context): Long
+  def name(implicit ctx: Context): String
+  def inputStream(implicit ctx: Context): InputStream
 }
 
-class UriSharedObject(uri: Uri)(implicit ctx: Context)
+case class UriSharedObject(uri: Uri)
 extends SharedObject {
 
-  var name = (
+  def name(implicit ctx: Context) = (
     uri.getScheme match {
 
       case "content" => {
@@ -96,18 +98,20 @@ extends SharedObject {
     }
   ).getOrElse("untitled.txt")
 
-  val size = {
+  def size(implicit ctx: Context) = {
     val fd = ctx.getContentResolver.openFileDescriptor(uri, "r")
     val size = fd.getStatSize
     fd.close; size
   }
 
-  def inputStream = ctx.getContentResolver.openInputStream(uri)
+  def inputStream(implicit ctx: Context) =
+    ctx.getContentResolver.openInputStream(uri)
 }
 
-class TextSharedObject(fname: String, contents: String)
+case class TextSharedObject(fname: String, contents: String)
 extends SharedObject {
-  var name = fname
-  val size = contents.getBytes("UTF-8").length.toLong
-  def inputStream = new ByteArrayInputStream(contents.getBytes("UTF-8"))
+  def name(implicit ctx: Context) = fname
+  def size(implicit ctx: Context) = contents.getBytes("UTF-8").length.toLong
+  def inputStream(implicit ctx: Context) =
+    new ByteArrayInputStream(contents.getBytes("UTF-8"))
 }
