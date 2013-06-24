@@ -25,6 +25,7 @@ case class MissingParameterException(message: String) extends Exception(message)
 
 class BeamActivity
 extends SActivity
+with SharedPreferences.OnSharedPreferenceChangeListener
 with TypedActivity {
 
   lazy val prefs = PreferenceManager.getDefaultSharedPreferences(this)
@@ -33,64 +34,6 @@ with TypedActivity {
   lazy val vprogress = findView(TR.progress)
   lazy val vcontent = findView(TR.content)
   lazy val share = SharedObject(getIntent)
-
-  object BeamParams extends PreferenceFragment with SharedPreferences.OnSharedPreferenceChangeListener {
-    override def onCreate(savedInstanceState: Bundle) = {
-      // Prepare the layout
-      super.onCreate(savedInstanceState)
-      addPreferencesFromResource(R.xml.params)
-
-      // Register a pref change listener
-      getPreferenceManager.getSharedPreferences.registerOnSharedPreferenceChangeListener(this)
-    }
-
-    override def onResume = {
-      // Call super
-      super.onResume
-
-      // Set default preferences
-      setupPreferences
-
-      // Set default filename
-      BeamParams.findPreference("ssh_transfer_filename")
-                .asInstanceOf[EditTextPreference]
-                .setText(share.map(_.name) getOrElse ("untitled.txt"))
-    }
-
-    def filename = {
-      BeamParams.findPreference("ssh_transfer_filename")
-                .asInstanceOf[EditTextPreference]
-                .getText
-    }
-
-    def setupPreferences = {
-      authMethod match {
-        case "public_key" => enablePasswordPref(false)
-        case "password" => enablePasswordPref(true)
-        case _ => throw new Exception("Ooops, wrong auth_method")
-      }
-    }
-
-    def savePassword(p: String) {
-      val edit = prefs.edit
-      edit.putString("ssh_auth_password", p)
-      edit.commit
-    }
-
-    def clearPassword = savePassword("")
-
-    def enablePasswordPref(b: Boolean) =
-      for (p <- Option(BeamParams.findPreference("ssh_auth_save_password")))
-        p.setEnabled(b)
-
-    def onSharedPreferenceChanged(pref: SharedPreferences, key: String) {
-      key match {
-        case "ssh_auth_save_password" => clearPassword
-        case "ssh_auth_method" => setupPreferences
-        case k => ()
-      }
-    }
-  }
 
   case class Monitor(spinner: ProgressDialog) extends SftpProgressMonitor {
 
@@ -112,17 +55,8 @@ with TypedActivity {
     }
   }
 
-  def filename = BeamParams.findPreference("ssh_transfer_filename")
-  def destination = prefs.getString("ssh_transfer_destination", "")
-  def server = prefs.getString("ssh_server_address", "")
-  def port = prefs.getString("ssh_server_port", "22").toInt
-  def username = prefs.getString("ssh_auth_username", "")
-  def shouldSavePassword = prefs.getBoolean("ssh_auth_save_password", false)
-  def password = if (shouldSavePassword) {
-      Some(prefs.getString("ssh_auth_password", ""))
-    } else None
-
-  def authMethod = prefs.getString("ssh_auth_method", "password")
+  def beamParams =
+    getFragmentManager.findFragmentById(R.id.params).asInstanceOf[BeamParams]
 
   override def onCreateOptionsMenu(menu: Menu): Boolean = {
     getMenuInflater.inflate(R.menu.beam_menu, menu)
@@ -132,15 +66,14 @@ with TypedActivity {
   override def onOptionsItemSelected(item: MenuItem): Boolean = item.getItemId match {
     case R.id.ui_sharekey => {
 
-      // Show a toast if the configuration is bad
-      if (server == null || username == null || server.isEmpty || username.isEmpty) {
-        toast("Please configure your server address and username!")
+      // Preflight checks
+      if (beamParams.server == null || beamParams.username == null ||
+          beamParams.server.isEmpty || beamParams.username.isEmpty)
         return true
-      }
 
       // Load the public key
       val pubkey: Future[String] = future {
-        val kf = generateKeyPair(server, username)
+        val kf = generateKeyPair(beamParams.server, beamParams.username)
         val ki = openFileInput(kf.getName + ".pub")
         val pubkey = Source.fromInputStream(ki).mkString
         ki.close
@@ -184,17 +117,14 @@ with TypedActivity {
       finish
     }
 
-    // Display some info
-    info("Sharing URI " + getIntent.getParcelableExtra(Intent.EXTRA_STREAM).asInstanceOf[Uri] +
-            " (type = " + getIntent.getType + ")")
+    if (bundle == null) {
+      // Display some info
+      info("Sharing URI " + getIntent.getParcelableExtra(Intent.EXTRA_STREAM).asInstanceOf[Uri] +
+              " (type = " + getIntent.getType + ")")
 
-    // Set default prefs
-    val edit = prefs.edit
-    if (authMethod == null) edit.putString("ssh_auth_method", "password")
-    edit.commit
-
-    // Setup the param list
-    getFragmentManager.beginTransaction.add(R.id.params, BeamParams).commit
+      // Setup the param list
+      getFragmentManager.beginTransaction.add(R.id.params, new BeamParams, "beam_params").commit
+    }
 
     // Do nothing if cancel is clicked
     vcancel.onClick(finish)
@@ -203,23 +133,23 @@ with TypedActivity {
     vsend onClick {
 
       // Check if parameters are valid
-      if (BeamParams.filename == "") toast("Destination filename can't be empty")
-      else if (destination == "") toast("Destination directory can't be empty")
-      else if (server == "") toast("Server can't be empty")
-      else if (username == "") toast("Username can't be empty")
+      if (beamParams.filename == "") toast("Destination filename can't be empty")
+      else if (beamParams.destination == "") toast("Destination directory can't be empty")
+      else if (beamParams.server == "") toast("Server can't be empty")
+      else if (beamParams.username == "") toast("Username can't be empty")
       else {
 
         // Set the filename
-        share.foreach(_.name = BeamParams.filename)
+        share.foreach(_.name = beamParams.filename)
 
         // Prepare the transfer
         val transfer = Transfer(
             share.get,
-            destination,
-            server,
-            port,
-            username,
-            authMethod)
+            beamParams.destination,
+            beamParams.server,
+            beamParams.port,
+            beamParams.username,
+            beamParams.authMethod)
 
         // Start the transfer
         transfer.start(password)
@@ -227,14 +157,38 @@ with TypedActivity {
     }
   }
 
+  override def onResume = {
+    // Call super
+    super.onResume
+
+    // Set default filename
+    beamParams.filename = share.map(_.name) getOrElse ("untitled.txt")
+
+    // Register a pref change listener
+    beamParams.getPreferenceManager
+              .getSharedPreferences
+              .registerOnSharedPreferenceChangeListener(this)
+  }
+
+  override def onPause = {
+    // Call super
+    super.onPause
+
+    // Unregister the pref change listener
+    beamParams.getPreferenceManager
+              .getSharedPreferences
+              .unregisterOnSharedPreferenceChangeListener(this)
+  }
+
   def generateKeyPair(server: String, username: String) = {
     // Preflight checks
-    if (server == null || username == null || server.isEmpty || username.isEmpty)
+    if (beamParams.server == null || beamParams.username == null ||
+        beamParams.server.isEmpty || beamParams.username.isEmpty)
       throw MissingParameterException("Please configure your server address and username!")
 
     // Generate a canonical name for the key pair
-    val fserver = "[^\\w]+".r.replaceAllIn(server, "_")
-    val fusername = "[^\\w]+".r.replaceAllIn(username, "_")
+    val fserver = "[^\\w]+".r.replaceAllIn(beamParams.server, "_")
+    val fusername = "[^\\w]+".r.replaceAllIn(beamParams.username, "_")
     val filename = s"$fserver-$fusername"
 
     // If the key isn't generated, generate it, write it and return it
@@ -367,8 +321,8 @@ with TypedActivity {
         fsend onSuccess { case _ =>
 
           // Save password if the "remember" flag is set
-          if (auth == "password" && shouldSavePassword)
-            BeamParams.savePassword(password.get)
+          if (auth == "password" && beamParams.shouldSavePassword)
+            savePassword(password.get)
 
           // Notify the user and close the activity
           runOnUiThread {
@@ -396,6 +350,25 @@ with TypedActivity {
       InputDialog.show("Enter password", previous.getOrElse("")) {
         p => start(Some(p))
       }
+    }
+  }
+
+  def savePassword(p: String) = {
+    val edit = prefs.edit
+    edit.putString("ssh_auth_password", p)
+    edit.commit
+  }
+
+  def clearPassword = savePassword("")
+
+  def password = if (beamParams.shouldSavePassword) {
+    Some(prefs.getString("ssh_auth_password", null))
+  } else None
+
+  def onSharedPreferenceChanged(pref: SharedPreferences, key: String) {
+    key match {
+      case "ssh_auth_method" => beamParams.setupPreferences
+      case k => ()
     }
   }
 }
