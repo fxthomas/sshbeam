@@ -1,7 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="io.github.fxthomas.sshbeam"
-    android:versionCode="4"
-    android:versionName="0.2.1">
+    android:versionCode="5"
+    android:versionName="0.2.2">
 
     <uses-sdk
         android:minSdkVersion="16"
