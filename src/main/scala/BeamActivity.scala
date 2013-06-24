@@ -32,6 +32,7 @@ with TypedActivity {
   lazy val vsend = findView(TR.send)
   lazy val vprogress = findView(TR.progress)
   lazy val vcontent = findView(TR.content)
+  lazy val share = SharedObject(getIntent)
 
   object BeamParams extends PreferenceFragment with SharedPreferences.OnSharedPreferenceChangeListener {
     override def onCreate(savedInstanceState: Bundle) = {
@@ -51,9 +52,15 @@ with TypedActivity {
       setupPreferences
 
       // Set default filename
-      val pref = BeamParams.findPreference("ssh_transfer_filename").asInstanceOf[EditTextPreference]
-      val filename = getFile(uri).map(_.getName).getOrElse("")
-      pref.setText(filename)
+      BeamParams.findPreference("ssh_transfer_filename")
+                .asInstanceOf[EditTextPreference]
+                .setText(share.map(_.name) getOrElse ("untitled.txt"))
+    }
+
+    def filename = {
+      BeamParams.findPreference("ssh_transfer_filename")
+                .asInstanceOf[EditTextPreference]
+                .getText
     }
 
     def setupPreferences = {
@@ -105,12 +112,7 @@ with TypedActivity {
     }
   }
 
-  implicit val context = this
-
-  def filename =
-    BeamParams.findPreference("ssh_transfer_filename")
-              .asInstanceOf[EditTextPreference].getText
-
+  def filename = BeamParams.findPreference("ssh_transfer_filename")
   def destination = prefs.getString("ssh_transfer_destination", "")
   def server = prefs.getString("ssh_server_address", "")
   def port = prefs.getString("ssh_server_port", "22").toInt
@@ -121,10 +123,6 @@ with TypedActivity {
     } else None
 
   def authMethod = prefs.getString("ssh_auth_method", "password")
-
-  lazy val uri = Option(getIntent
-      .getParcelableExtra(Intent.EXTRA_STREAM)
-      .asInstanceOf[Uri]) getOrElse { intentToFile(getIntent) }
 
   override def onCreateOptionsMenu(menu: Menu): Boolean = {
     getMenuInflater.inflate(R.menu.beam_menu, menu)
@@ -180,6 +178,16 @@ with TypedActivity {
     super.onCreate(bundle)
     setContentView(R.layout.main)
 
+    // Check if the shared file/content is valid
+    if (!share.isDefined) {
+      toast("Nothing to share")
+      finish
+    }
+
+    // Display some info
+    info("Sharing URI " + getIntent.getParcelableExtra(Intent.EXTRA_STREAM).asInstanceOf[Uri] +
+            " (type = " + getIntent.getType + ")")
+
     // Set default prefs
     val edit = prefs.edit
     if (authMethod == null) edit.putString("ssh_auth_method", "password")
@@ -195,16 +203,18 @@ with TypedActivity {
     vsend onClick {
 
       // Check if parameters are valid
-      if (filename == "") toast("Destination filename can't be empty")
+      if (BeamParams.filename == "") toast("Destination filename can't be empty")
       else if (destination == "") toast("Destination directory can't be empty")
       else if (server == "") toast("Server can't be empty")
       else if (username == "") toast("Username can't be empty")
       else {
 
+        // Set the filename
+        share.foreach(_.name = BeamParams.filename)
+
         // Prepare the transfer
         val transfer = Transfer(
-            uri,
-            filename,
+            share.get,
             destination,
             server,
             port,
@@ -215,46 +225,6 @@ with TypedActivity {
         transfer.start(password)
       }
     }
-  }
-
-  def intentToFile(intent: Intent) = {
-    // If we can't find the URI, then somebody shared text directly.
-    // In which case, we use that text to create a new file.
-    val text = intent.getStringExtra(Intent.EXTRA_TEXT)
-
-    // If the user shared _nothing_, send a toast and finish
-    if (text == null) {
-      toast("Nothing to share")
-      finish
-    }
-
-    // Create the title from either the intent or the text
-    val title = Option(intent.getStringExtra(Intent.EXTRA_SUBJECT))
-      .getOrElse {
-        val trimmed = text.trim
-        val length = trimmed.length
-        trimmed.substring(0, if (length < 10) length else 10)
-      }.replaceAll("[\\W]+|_", "-")
-
-    // Add an extension
-    val ext = intent.getType match {
-      case "text/html" => "html"
-      case "text/xml" => "xml"
-      case "application/xml" => "xml"
-      case _ => "txt"
-    }
-
-    // Create a temporary file
-    val outdir = context.getCacheDir
-    val outfile = new File(context.getCacheDir, s"${title}.${ext}")
-
-    // Write to it
-    val fs = new PrintStream(new FileOutputStream(outfile), true, "UTF-8")
-    fs.print(text)
-    fs.close
-
-    // Return an URI
-    Uri.fromFile(outfile)
   }
 
   def generateKeyPair(server: String, username: String) = {
@@ -289,8 +259,7 @@ with TypedActivity {
   }
 
   case class Transfer(
-    uri: Uri,
-    filename: String,
+    share: SharedObject,
     destination: String,
     server: String,
     port: Int,
@@ -341,28 +310,26 @@ with TypedActivity {
       session.connect()
 
       // Set monitor size
-      val fd = getContentResolver.openFileDescriptor(uri, "r")
-      monitor.size = fd.getStatSize
-      fd.close
+      monitor.size = share.size
 
       // Open the SFTP channel and the input stream
-      val is = getContentResolver.openInputStream(uri)
       val channel = session.openChannel("sftp").asInstanceOf[ChannelSftp]
       channel.connect
       channel.cd(destination)
 
       // Check if the file exists
       val exists: Boolean = try {
-        channel.lstat(filename); true
+        channel.lstat(share.name); true
       } catch {
         case e: SftpException if e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE => false
       }
 
       // If it exists, fail
-      if (exists) throw FileExistsException(filename)
+      if (exists) throw FileExistsException(share.name)
 
       // Transfer the file
-      channel.put(is, filename, monitor)
+      val is = share.inputStream
+      channel.put(is, share.name, monitor)
 
       // Close everything
       channel.disconnect
@@ -430,26 +397,5 @@ with TypedActivity {
         p => start(Some(p))
       }
     }
-  }
-
-  def getFile(contentUri: Uri): Option[File] = {
-    if (contentUri.getScheme == "content") {
-      val resolver = getContentResolver
-
-      for (cr <- Option(resolver.query(
-        contentUri, Array(MediaStore.MediaColumns.DATA),
-        null, null, null))) {
-
-        try {
-          if (cr.moveToFirst) return Some(new File(cr.getString(0)))
-        } finally {
-          cr.close
-        }
-      }
-    } else if (contentUri.getScheme == "file") {
-      return Some(new File(contentUri.getLastPathSegment))
-    }
-
-    return None
   }
 }
