@@ -43,19 +43,16 @@ class BeamTransferFragment extends Fragment {
 
   override def onPause = {
     super.onPause
-    toast("onPause called")
     monitor.foreach(_.pause)
   }
 
   override def onResume = {
     super.onResume
-    toast("onResume called")
     monitor.foreach(_.createSpinner)
   }
 
   override def onDestroy = {
     super.onDestroy
-    toast("onDestroy called")
     monitor.foreach(_.end)
   }
 
