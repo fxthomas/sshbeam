@@ -20,7 +20,6 @@ import scala.collection.JavaConversions._
 
 import ExecutionContext.Implicits.global
 
-case class FileExistsException(filename: String) extends Exception(s"$filename already exists on the remote server")
 case class MissingParameterException(message: String) extends Exception(message)
 
 class BeamTransferFragment extends Fragment {
@@ -42,26 +41,91 @@ class BeamTransferFragment extends Fragment {
     setRetainInstance(true)
   }
 
-  case class Monitor(spinner: ProgressDialog) extends SftpProgressMonitor {
+  override def onPause = {
+    super.onPause
+    toast("onPause called")
+    monitor.foreach(_.pause)
+  }
 
-    var size = 1L
+  override def onResume = {
+    super.onResume
+    toast("onResume called")
+    monitor.foreach(_.createSpinner)
+  }
 
-    def end = runOnUiThread(spinner.dismiss)
+  override def onDestroy = {
+    super.onDestroy
+    toast("onDestroy called")
+    monitor.foreach(_.end)
+  }
+
+  var spinner: Option[ProgressDialog] = None
+  var monitor: Option[Monitor] = None
+
+  case class Monitor(size: Long) extends SftpProgressMonitor {
+
+    var isRunning = false
+    var progress = 0L
+
+    def isComplete = (progress == size)
+
+    monitor = Some(this)
+
+    def createSpinner = if (!spinner.isDefined) {
+      val spin = new ProgressDialog(ctx)
+      spin setProgressStyle ProgressDialog.STYLE_HORIZONTAL
+      spin setTitle "SSH Beam"
+      spin setMessage "Preparing transfer..."
+      spin setIndeterminate false
+      spin setMax size.toInt
+      spin setProgress progress.toInt
+      spin setCancelable false
+      spin.setButton(DialogInterface.BUTTON_NEGATIVE, "Cancel", new DialogInterface.OnClickListener {
+        override def onClick(dialog: DialogInterface, which: Int) = end
+      })
+      spin.show
+      spinner = Some(spin)
+    }
+
+    def pause = {
+      spinner.foreach(s => runOnUiThread(s.dismiss))
+      spinner = None
+    }
+
+    def end = {
+      pause
+      monitor = None
+      isRunning = false
+    }
 
     def count(cnt: Long): Boolean = {
-      runOnUiThread { spinner incrementProgressBy cnt.toInt }
-      return true
+      // Increment progress
+      progress += cnt
+
+      // Update the spinner
+      for (spin <- spinner) runOnUiThread {
+        spin setProgress progress.toInt
+      }
+
+      // Return running state
+      return isRunning
     }
 
     def init(op: Int, src: String, dest: String, max: Long) {
-      runOnUiThread {
-        spinner setProgress 0
-        spinner setMax size.toInt
-        spinner show
+      // Update running state and progress
+      isRunning = true
+      progress = 0L
+
+      // Create spinner if needed
+      if (!spinner.isDefined) createSpinner
+
+      // Prepare spinner
+      for (spin <- spinner) runOnUiThread {
+        spin setMessage "Transfer in progress..."
+        spin setProgress 0
       }
     }
   }
-
 
   def generateKeyPair(server: String, username: String) = {
     // Preflight checks
@@ -150,80 +214,34 @@ class BeamTransferFragment extends Fragment {
     shouldSavePassword: Boolean
   ) {
 
-    val key = auth match {
-      case "password" => None
-      case "public_key" => {
-        // Show spinner dialog
-        val dlg = new ProgressDialog(ctx)
-        dlg setTitle "SSH Beam"
-        dlg setMessage "Generating key pair..."
-        dlg show
-
-        // Create the key
-        val key = future { generateKeyPair(server, username) }
-        key onComplete { case _ => runOnUiThread(dlg.dismiss) }
-        Some(key)
-      }
+    def sendPublicKey(implicit monitor: SftpProgressMonitor): Future[Unit] = future {
+      // Create the session
+      val sftp = new SftpServer(server, port, username)
+      val key = generateKeyPair(server, username)
+      val session = sftp.createPublicKeySession(key)
+      send(session)
     }
 
-    case class HardcodedUserInfo(password: String) extends UserInfo {
-      def getPassphrase = null
-      def getPassword = password
-      def promptPassword(s: String) = true
-      def promptPassphrase(s: String) = true
-      def promptYesNo(s: String) = true
-      def showMessage(s: String) = toast(s)
+    def sendPassword(password: String)(implicit monitor: SftpProgressMonitor): Future[Unit] = future {
+      // Create the session
+      val sftp = new SftpServer(server, port, username)
+      val session = sftp.createPasswordSession(password)
+      send(session)
     }
 
-    def sendPublicKey(keyfile: File, monitor: Monitor): Future[Unit] = future {
-      val jsch = new JSch
-      jsch.addIdentity(keyfile.getAbsolutePath)
-      send(jsch.getSession(username, server, port), monitor)
-    }
-
-    def sendPassword(password: String, monitor: Monitor): Future[Unit] = future {
-      val session = (new JSch).getSession(username, server, port)
-      session.setUserInfo(HardcodedUserInfo(password))
-      send(session, monitor)
-    }
-
-    def send(session: Session, monitor: Monitor) {
-
-      // Write something in the logs
-      info(s"Starting SFTP transfer ($auth)")
-
-      // Configure the connection
-      val config = new Properties
-      config.setProperty("StrictHostKeyChecking", "no")
-      session.setConfig(config)
-      session.connect()
-
-      // Set monitor size
-      monitor.size = share.size
-
-      // Open the SFTP channel and the input stream
-      val channel = session.openChannel("sftp").asInstanceOf[ChannelSftp]
-      channel.connect
-      channel.cd(destination)
-
-      // Check if the file exists
-      val exists: Boolean = try {
-        channel.lstat(share.name); true
-      } catch {
-        case e: SftpException if e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE => false
-      }
-
-      // If it exists, fail
-      if (exists) throw FileExistsException(share.name)
-
-      // Transfer the file
+    def send(session: SftpSession)(implicit monitor: SftpProgressMonitor) = {
+      // Create the input stream
       val is = share.inputStream
-      channel.put(is, share.name, monitor)
 
-      // Close everything
-      channel.disconnect
-      session.disconnect
-      is.close
+      // Send the file
+      try {
+        session.connect
+        session.cd(destination)
+        session.put(share.name, is)
+      } finally {
+        session.disconnect
+        is.close
+      }
     }
 
     def start(password: Option[String]): Unit = {
@@ -234,21 +252,16 @@ class BeamTransferFragment extends Fragment {
       // Else, try connecting
       else {
 
-        // Create a spinner
-        val spinner = new ProgressDialog(ctx)
-        spinner setProgressStyle ProgressDialog.STYLE_HORIZONTAL
-        spinner setTitle "SSH Beam"
-        spinner setMessage "Transfer in progress..."
-        spinner setIndeterminate false
-        spinner setMax 100
-
         // Create a monitor
-        val monitor = Monitor(spinner)
+        implicit val m = Monitor(share.size)
+
+        // Show the spinner
+        m.createSpinner
 
         // Send the file
         val fsend = auth match {
-          case "password" => sendPassword(password.get, monitor)
-          case "public_key" => key.get.flatMap(sendPublicKey(_, monitor))
+          case "password" => sendPassword(password.get)
+          case "public_key" => sendPublicKey
           case _ => throw new Exception("Oops, wrong auth method!")
         }
 
@@ -261,9 +274,12 @@ class BeamTransferFragment extends Fragment {
 
           // Notify the user and close the activity
           runOnUiThread {
-            spinner.dismiss
-            toast("Transfer successful")
-            ctx.finish
+            if (m.isComplete) {
+              toast("Transfer successful")
+              ctx.finish
+            }
+
+            else toast("Transfer cancelled")
           }
         }
 
@@ -272,7 +288,9 @@ class BeamTransferFragment extends Fragment {
           runOnUiThread {
             // Send a toast and dismiss the spinner
             toast("Transfer failed: " + e.getMessage)
-            spinner.dismiss
+
+            // Dismiss monitor
+            monitor.foreach(_.end)
 
             // Ask for the password again
             if (auth == "password") ask(password)
