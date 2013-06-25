@@ -163,7 +163,7 @@ with TypedActivity {
       }
 
       case None => {
-        intent.putExtra(Intent.EXTRA_TEXT, text)
+        intent.putExtra(Intent.EXTRA_TEXT, text.get)
       }
     }
 
