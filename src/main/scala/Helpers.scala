@@ -84,7 +84,7 @@ object Helpers {
     val title = subject
       .orElse(alttitle)
       .getOrElse("untitled")
-      .replaceAll("[./]", "-")
+      .replaceAll("[\\W]+|_", "_")
 
     // Return a shared object
     s"${title}.${ext}"
