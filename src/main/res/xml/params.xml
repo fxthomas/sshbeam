@@ -43,7 +43,8 @@
         <EditTextPreference
           android:key="ssh_auth_username"
           android:inputType="textNoSuggestions"
-          android:title="Username" />
+          android:title="Username"
+          android:defaultValue="" />
 
         <ListPreference
           android:key="ssh_auth_method"
@@ -52,11 +53,16 @@
           android:title="Authentication method"
           android:defaultValue="password" />
 
-        <CheckBoxPreference
-          android:key="ssh_auth_save_password"
-          android:title="Remember password"
-          android:summary="The password is saved in plain text in the app's preferences. Don't enable if you need security!"
-          android:defaultValue="false" />
+        <EditTextPreference
+          android:key="ssh_auth_password"
+          android:inputType="textNoSuggestions"
+          android:title="Password"
+          android:defaultValue="" />
+
+        <!--<Preference-->
+          <!--android:key="ssh_auth_sharekey"-->
+          <!--android:title="Share SSH key"-->
+          <!--android:summary="Shares the SSH key generated for the current username and server." />-->
 
     </PreferenceCategory>
 </PreferenceScreen>

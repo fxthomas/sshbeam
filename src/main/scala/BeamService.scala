@@ -8,20 +8,22 @@ import android.provider._
 import android.preference._
 import android.view._
 
-import com.jcraft.jsch._
-import java.util.Properties
-import java.io.{File, InputStream, FileOutputStream, PrintStream}
-
 import org.scaloid.common._
 
-import scala.io.Source
-import scala.concurrent._
-import scala.collection.JavaConversions._
+import com.jcraft.jsch.SftpProgressMonitor
+
+import Sftp._
+import Helpers._
+
+import java.io.ByteArrayInputStream
 
 case class MissingParameterException(message: String) extends Exception(message)
 class UnknownTypeException extends Exception("Unknown type")
 
 class BeamService extends IntentService("SSH Beam") {
+
+  import BeamService._
+
   implicit val ctx = this
 
   // Configure the notification
@@ -36,37 +38,53 @@ class BeamService extends IntentService("SSH Beam") {
 
   override def onHandleIntent(intent: Intent) = {
 
+    // Start the notification
     runOnUiThread {
-      notificationManager.notify(0, builder.setTicker("Starting transfer").build)
+      notificationManager.notify(0,
+        builder.setTicker("Starting transfer").setOngoing(true).build)
     }
 
-    val share = intent.getStringExtra("s_type") match {
-      case "uri" => UriSharedObject(intent.getData)
-      case "text" => TextSharedObject(
-        intent.getStringExtra("s_fname"),
-        intent.getStringExtra("s_contents")
-      )
-      case _ => throw new UnknownTypeException
+    // Create the input stream
+    val (is, size) = Option(intent.getData) match {
+      case Some(uri) => (uri.inputStream, uri.dataSize)
+      case None => {
+        val data = intent.getStringExtra(Intent.EXTRA_TEXT).getBytes("UTF-8")
+        val size = data.length.toLong
+        (new ByteArrayInputStream(data), size)
+      }
     }
 
-    val filename = intent.getStringExtra("filename")
-    val server = intent.getStringExtra("server")
-    val username = intent.getStringExtra("username")
-    val port = intent.getIntExtra("port", 22)
-    val destination = intent.getStringExtra("destination")
-    val auth = intent.getStringExtra("auth")
-    val password = intent.getStringExtra("password")
+    // Retrieve transfer informations
+    val filename = intent.getStringExtra(EXTRA_NAME)
+    val destination = intent.getStringExtra(EXTRA_DESTINATION)
+    val server = intent.getParcelableExtra(EXTRA_SERVER).asInstanceOf[SftpServer]
+    val auth = intent.getParcelableExtra(EXTRA_AUTH).asInstanceOf[SftpAuth]
 
-    val transfer = Transfer(
-      share,
-      filename,
-      destination,
-      server,
-      port,
-      username,
-      auth)
+    // Create the session and the monitor
+    val session = server.createSession(auth)
+    implicit val monitor = Monitor(size)
 
-    transfer.start(password)
+    // Send the file
+    try {
+      session.connect
+      session.cd(destination)
+      session.put(filename, is)
+    } catch {
+      case e: Throwable => runOnUiThread {
+        notificationManager.notify(0,
+          builder.setProgress(0, 0, false)
+                 .setTicker("Transfer failed")
+                 .setContentTitle("Transfer failed")
+                 .setContentText(e.getMessage)
+                 .setOngoing(false)
+                 .build
+        )
+        e.printStackTrace
+      }
+    } finally {
+      session.disconnect
+      is.close
+    }
   }
 
   case class Monitor(size: Long) extends SftpProgressMonitor {
@@ -121,98 +139,11 @@ class BeamService extends IntentService("SSH Beam") {
       }
     }
   }
+}
 
-  def generateKeyPair(server: String, username: String) = {
-    // Preflight checks
-    if (server == null || username == null ||
-        server.isEmpty || username.isEmpty)
-      throw MissingParameterException("Please configure your server address and username!")
-
-    // Generate a canonical name for the key pair
-    val fserver = "[^\\w]+".r.replaceAllIn(server, "_")
-    val fusername = "[^\\w]+".r.replaceAllIn(username, "_")
-    val filename = s"$fserver-$fusername"
-
-    // If the key isn't generated, generate it, write it and return it
-    if (!(ctx.fileList contains filename)) {
-
-      // Generate the key
-      val key = KeyPair.genKeyPair(new JSch, KeyPair.DSA)
-
-      // Write private key
-      val fpriv = ctx.openFileOutput(filename, Context.MODE_PRIVATE)
-      key.writePrivateKey(fpriv)
-      fpriv.close
-
-      // Write public key
-      val fpub = ctx.openFileOutput(filename + ".pub", Context.MODE_PRIVATE)
-      key.writePublicKey(fpub, "sshbeam@android")
-      fpub.close
-    }
-
-    // Return the name of the private key file
-    new File(ctx.getFilesDir, filename)
-  }
-
-  case class Transfer(
-    share: SharedObject,
-    filename: String,
-    destination: String,
-    server: String,
-    port: Int,
-    username: String,
-    auth: String) {
-
-    def sendPublicKey(implicit monitor: SftpProgressMonitor) = {
-      // Create the session
-      val sftp = new SftpServer(server, port, username)
-      val key = generateKeyPair(server, username)
-      val session = sftp.createPublicKeySession(key)
-      send(session)
-    }
-
-    def sendPassword(password: String)(implicit monitor: SftpProgressMonitor) = {
-      // Create the session
-      val sftp = new SftpServer(server, port, username)
-      val session = sftp.createPasswordSession(password)
-      send(session)
-    }
-
-    def send(session: SftpSession)(implicit monitor: SftpProgressMonitor) = {
-      // Send the file
-      val is = share.inputStream
-      try {
-        session.connect
-        session.cd(destination)
-        session.put(filename, is)
-      } catch {
-        case e: Throwable => runOnUiThread {
-          notificationManager.notify(0,
-            builder.setProgress(0, 0, false)
-                   .setTicker("Transfer failed")
-                   .setContentTitle("Transfer failed")
-                   .setContentText(e.getMessage)
-                   .setOngoing(false)
-                   .build
-          )
-        }
-      } finally {
-        session.disconnect
-        is.close
-      }
-    }
-
-    def start(password: String): Unit = {
-
-      // Create a monitor
-      implicit val m = Monitor(share.size)
-
-      // Send the file
-      auth match {
-        case "password" => sendPassword(password)
-        case "public_key" => sendPublicKey
-        case _ => throw new Exception("Oops, wrong auth method!")
-      }
-    }
-  }
+object BeamService {
+  val EXTRA_NAME = "io.github.fxthomas.sshbeam.Beam.FILENAME"
+  val EXTRA_DESTINATION = "io.github.fxthomas.sshbeam.Beam.DESTINATION"
+  val EXTRA_SERVER = "io.github.fxthomas.sshbeam.Beam.SERVER"
+  val EXTRA_AUTH = "io.github.fxthomas.sshbeam.Beam.AUTH"
 }

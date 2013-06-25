@@ -7,7 +7,12 @@ import android.preference.ListPreference
 import android.preference.TwoStatePreference
 import android.preference.PreferenceFragment
 
+import Sftp._
+
 class BeamParams extends PreferenceFragment {
+
+  implicit def ctx = getActivity
+
   override def onCreate(savedInstanceState: Bundle) = {
     // Prepare the layout
     super.onCreate(savedInstanceState)
@@ -58,25 +63,29 @@ class BeamParams extends PreferenceFragment {
     .setChecked(value)
   }
 
+  def authMethod = getListValue("ssh_auth_method")
+
+  def auth: SftpAuth = {
+    authMethod match {
+      case "password" => new SftpPassword(getTextValue("ssh_auth_password"))
+      case "public_key" => server.generatedKey.get
+      case _ => throw new Exception("Ooops, wrong auth_method")
+    }
+  }
+
+  def server = new SftpServer(
+    getTextValue("ssh_server_address"),
+    getTextValue("ssh_server_port").toInt,
+    getTextValue("ssh_auth_username")
+  )
+
+  def destination = getTextValue("ssh_transfer_destination")
 
   def filename = getTextValue("ssh_transfer_filename")
-  def authMethod = getListValue("ssh_auth_method")
-  def destination = getTextValue("ssh_transfer_destination")
-  def server = getTextValue("ssh_server_address")
-  def port = getTextValue("ssh_server_port").toInt
-  def username = getTextValue("ssh_auth_username")
-  def shouldSavePassword = getBooleanValue("ssh_auth_save_password")
-
-  def filename_= = setTextValue("ssh_transfer_filename", _: String)
-  def authMethod_= = setListValue("ssh_auth_method", _: String)
-  def destination_= = setTextValue("ssh_transfer_destination", _: String)
-  def server_= = setTextValue("ssh_server_address", _: String)
-  def port_=(p: Int) = setTextValue("ssh_server_port", p.toString)
-  def username_= = setTextValue("ssh_auth_username", _: String)
-  def shouldSavePassword_= = setBooleanValue("ssh_auth_save_password", _: Boolean)
+  def filename_=(s: String) = setTextValue("ssh_transfer_filename", s)
 
   def enablePasswordPref =
-    findPreference("ssh_auth_save_password").setEnabled _
+    findPreference("ssh_auth_password").setEnabled _
 
   def setupPreferences = {
     authMethod match {

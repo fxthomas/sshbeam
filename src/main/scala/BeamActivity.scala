@@ -8,61 +8,60 @@ import android.provider._
 import android.preference._
 import android.view._
 
-import com.jcraft.jsch._
-import java.util.Properties
-import java.io.{File, InputStream, FileOutputStream, PrintStream}
-
 import org.scaloid.common._
 
-import scala.io.Source
 import scala.concurrent._
 import scala.collection.JavaConversions._
 
 import ExecutionContext.Implicits.global
+
+import Sftp._
+import Helpers._
 
 class BeamActivity
 extends SActivity
 with SharedPreferences.OnSharedPreferenceChangeListener
 with TypedActivity {
 
-  lazy val prefs = PreferenceManager.getDefaultSharedPreferences(this)
-  lazy val vcancel = findView(TR.cancel)
-  lazy val vsend = findView(TR.send)
-  lazy val vprogress = findView(TR.progress)
-  lazy val vcontent = findView(TR.content)
-  lazy val share = SharedObject(getIntent)
+  // Cancel and send buttons
+  def vcancel = findView(TR.cancel)
+  def vsend = findView(TR.send)
 
+  // Retrieve information from the intent
+  def uri = Option(getIntent.getData) orElse Option(getIntent.getParcelableExtra(Intent.EXTRA_STREAM).asInstanceOf[Uri])
+  def text = Option(getIntent.getStringExtra(Intent.EXTRA_TEXT))
+  def subject = Option(getIntent.getStringExtra(Intent.EXTRA_SUBJECT))
+  def mimeType = Option(getIntent.getType)
+
+  // Preference fragment with the transfer configuration
   def beamParams =
     getFragmentManager.findFragmentById(R.id.params).asInstanceOf[BeamParams]
 
-  def beamTransfer =
-    getFragmentManager.findFragmentByTag("beam_transfer").asInstanceOf[BeamTransferFragment]
+  def generateKey(onSuccess: SftpKey => Unit) {
+    // Create the key
+    beamParams.server.generatedKey match {
+      case Some(k) => onSuccess(k)
+      case None => {
+        // Create the future and the dialog
+        val key = future { beamParams.server.createKey }
+        val d = spinnerDialog("SSH Beam", "Generating key...")
 
-  override def onCreateOptionsMenu(menu: Menu): Boolean = {
-    getMenuInflater.inflate(R.menu.beam_menu, menu)
-    true
-  }
+        // On success
+        key onSuccess {
+          case pk: SftpKey => {
+            onSuccess(pk)
+            runOnUiThread(d.dismiss)
+          }
+        }
 
-  override def onOptionsItemSelected(item: MenuItem): Boolean = item.getItemId match {
-    case R.id.ui_sharekey => {
-
-      // Preflight checks
-      if (beamParams.server == null || beamParams.username == null ||
-          beamParams.server.isEmpty || beamParams.username.isEmpty)
-        return true
-
-      beamTransfer.generatePublicKey(beamParams.server, beamParams.username) {
-        pk => {
-          val intent = new Intent
-          intent.setAction(Intent.ACTION_SEND)
-          intent.putExtra(Intent.EXTRA_TEXT, pk)
-          intent.setType("text/plain")
-          startActivity(intent)
+        // On failure, show a toast
+        key onFailure { case e: Exception =>
+          e.printStackTrace
+          toast(e.getMessage)
+          runOnUiThread(d.dismiss)
         }
       }
     }
-
-    return true
   }
 
   override def onCreate(bundle: Bundle) {
@@ -70,22 +69,12 @@ with TypedActivity {
     super.onCreate(bundle)
     setContentView(R.layout.main)
 
-    // Check if the shared file/content is valid
-    if (!share.isDefined) {
-      toast("Nothing to share")
-      finish
-    }
-
+    // Setup the beam preference fragment
     if (bundle == null) {
-      // Display some info
-      info("Sharing URI " + getIntent.getParcelableExtra(Intent.EXTRA_STREAM).asInstanceOf[Uri] +
-              " (type = " + getIntent.getType + ")")
-
-      // Setup fragments for this activity
-      getFragmentManager.beginTransaction
-                        .add(R.id.params, new BeamParams, "beam_params")
-                        .add(new BeamTransferFragment, "beam_transfer")
-                        .commit
+      getFragmentManager
+      .beginTransaction
+      .add(R.id.params, new BeamParams, "beam_params")
+      .commit
     }
 
     // Do nothing if cancel is clicked
@@ -93,25 +82,9 @@ with TypedActivity {
 
     // Send the file if send is clicked
     vsend onClick {
-
-      // Check if parameters are valid
-      if (beamParams.filename == "") toast("Destination filename can't be empty")
-      else if (beamParams.destination == "") toast("Destination directory can't be empty")
-      else if (beamParams.server == "") toast("Server can't be empty")
-      else if (beamParams.username == "") toast("Username can't be empty")
-      else {
-
-        // Prepare the transfer
-        val transfer = beamTransfer.transfer(
-            share.get,
-            beamParams.filename,
-            beamParams.destination,
-            beamParams.server,
-            beamParams.port,
-            beamParams.username,
-            beamParams.authMethod,
-            beamParams.shouldSavePassword,
-            password)
+      beamParams.authMethod match {
+        case "public_key" => generateKey { _ => createTransferIntent }
+        case _ => createTransferIntent
       }
     }
   }
@@ -120,13 +93,21 @@ with TypedActivity {
     // Call super
     super.onResume
 
-    // Set default filename
-    beamParams.filename = share.map(_.name) getOrElse ("untitled.txt")
-
     // Register a pref change listener
     beamParams.getPreferenceManager
               .getSharedPreferences
               .registerOnSharedPreferenceChangeListener(this)
+
+    // Check if we have something to share
+    if (uri.isEmpty && text.isEmpty) {
+      toast("Nothing to share")
+      finish
+    }
+
+    // Set default filename
+    beamParams.filename =
+      uri.flatMap(_.dataName)
+         .getOrElse(createFilename(mimeType, text, subject))
   }
 
   override def onPause = {
@@ -139,14 +120,54 @@ with TypedActivity {
               .unregisterOnSharedPreferenceChangeListener(this)
   }
 
-  def password = if (beamParams.shouldSavePassword) {
-    Some(prefs.getString("ssh_auth_password", null))
-  } else None
+  override def onCreateOptionsMenu(menu: Menu): Boolean = {
+    getMenuInflater.inflate(R.menu.beam_menu, menu)
+    true
+  }
+
+  override def onOptionsItemSelected(item: MenuItem): Boolean = item.getItemId match {
+    case R.id.ui_sharekey => generateKey {
+      pk: SftpKey => {
+        val intent = new Intent
+        intent.setAction(Intent.ACTION_SEND)
+        intent.putExtra(Intent.EXTRA_TEXT, pk.publicKey)
+        intent.setType("text/plain")
+        startActivity(intent)
+      }
+    }
+
+    return true
+  }
 
   def onSharedPreferenceChanged(pref: SharedPreferences, key: String) {
     key match {
       case "ssh_auth_method" => beamParams.setupPreferences
       case k => ()
     }
+  }
+
+  def createTransferIntent = {
+
+    // Create intent
+    val intent = new Intent("io.github.fxthomas.sshbeam.Beam")
+    intent.putExtra(BeamService.EXTRA_NAME, beamParams.filename)
+    intent.putExtra(BeamService.EXTRA_DESTINATION, beamParams.destination)
+    intent.putExtra(BeamService.EXTRA_SERVER, beamParams.server)
+    intent.putExtra(BeamService.EXTRA_AUTH, beamParams.auth)
+
+    // Add shared content
+    uri match {
+      case Some(u) => {
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        intent.setData(u)
+      }
+
+      case None => {
+        intent.putExtra(Intent.EXTRA_TEXT, text)
+      }
+    }
+
+    // Start intent
+    startService(intent); finish
   }
 }
