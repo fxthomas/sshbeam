@@ -55,7 +55,7 @@
 
         <EditTextPreference
           android:key="ssh_auth_password"
-          android:inputType="textNoSuggestions"
+          android:inputType="textNoSuggestions|textPassword"
           android:title="Password"
           android:defaultValue="" />
 
