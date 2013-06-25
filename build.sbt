@@ -5,10 +5,10 @@ androidDefaults
 name := "SSH Beam"
 
 // Version of your app
-version := "0.3"
+version := "0.3.1"
 
 // Version number of your app
-versionCode := 7
+versionCode := 8
 
 // Version of Scala
 scalaVersion := "2.10.1"
