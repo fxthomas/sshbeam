@@ -149,7 +149,8 @@ with TypedActivity {
   def createTransferIntent = {
 
     // Create intent
-    val intent = new Intent("io.github.fxthomas.sshbeam.Beam")
+    val intent = new Intent
+    intent.setAction("io.github.fxthomas.sshbeam.Beam")
     intent.putExtra(BeamService.EXTRA_NAME, beamParams.filename)
     intent.putExtra(BeamService.EXTRA_DESTINATION, beamParams.destination)
     intent.putExtra(BeamService.EXTRA_SERVER, beamParams.server)
@@ -158,8 +159,11 @@ with TypedActivity {
     // Add shared content
     uri match {
       case Some(u) => {
+        // Necessary for the service to be able to read the Uri
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        intent.setData(u)
+
+        // The Uri (and its type, required!)
+        intent.setDataAndType(u, mimeType orNull)
       }
 
       case None => {

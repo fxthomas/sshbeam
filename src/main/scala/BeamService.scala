@@ -38,12 +38,6 @@ class BeamService extends IntentService("SSH Beam") {
 
   override def onHandleIntent(intent: Intent) = {
 
-    // Start the notification
-    runOnUiThread {
-      notificationManager.notify(0,
-        builder.setTicker("Starting transfer").setOngoing(true).build)
-    }
-
     // Create the input stream
     val (is, size) = Option(intent.getData) match {
       case Some(uri) => (uri.inputStream, uri.dataSize)
@@ -60,9 +54,20 @@ class BeamService extends IntentService("SSH Beam") {
     val server = intent.getParcelableExtra(EXTRA_SERVER).asInstanceOf[SftpServer]
     val auth = intent.getParcelableExtra(EXTRA_AUTH).asInstanceOf[SftpAuth]
 
+    // Start the notification
+    runOnUiThread {
+      startForeground(0,
+        builder
+        .setTicker("Starting transfer")
+        .setContentTitle(filename)
+        .setContentText("Starting transfer")
+        .setOngoing(true).build
+      )
+    }
+
     // Create the session and the monitor
     val session = server.createSession(auth)
-    implicit val monitor = Monitor(size)
+    implicit val monitor = Monitor(filename, size)
 
     // Send the file
     try {
@@ -74,12 +79,12 @@ class BeamService extends IntentService("SSH Beam") {
         notificationManager.notify(0,
           builder.setProgress(0, 0, false)
                  .setTicker("Transfer failed")
-                 .setContentTitle("Transfer failed")
                  .setContentText(e.getMessage)
                  .setOngoing(false)
                  .build
         )
         e.printStackTrace
+        runOnUiThread { stopForeground(false) }
       }
     } finally {
       session.disconnect
@@ -87,10 +92,11 @@ class BeamService extends IntentService("SSH Beam") {
     }
   }
 
-  case class Monitor(size: Long) extends SftpProgressMonitor {
+  case class Monitor(filename: String, size: Long) extends SftpProgressMonitor {
 
     def isComplete = (progress == size)
     var isRunning = false
+    var startTime = 0L
     var progress = 0L
 
     def end = {
@@ -100,11 +106,12 @@ class BeamService extends IntentService("SSH Beam") {
       runOnUiThread {
         notificationManager.notify(0,
           builder.setProgress(0, 0, false)
-                 .setContentTitle(message)
+                 .setContentText(message)
                  .setTicker(message)
                  .setOngoing(false)
                  .build
         )
+        stopForeground(false)
       }
     }
 
@@ -112,10 +119,34 @@ class BeamService extends IntentService("SSH Beam") {
       // Increment progress
       progress += cnt
 
+      // Estimate the time left
+      val telapsed = (System.currentTimeMillis - startTime).toDouble / 1000.
+      val speed = progress.toDouble / telapsed
+      val tleft = (size / speed).toInt
+
+      // Create a "time left" string
+      val s_speed = (
+        if (speed < 1000.) s"${speed.toLong} B/s"
+        else if (speed < 1000000.) { (speed / 1000.).toInt.toString + "kB/s" }
+        else if (speed < 1000000000.) { (speed / 1000000.).toInt.toString + "MB/s" }
+        else { (speed / 1000000000.).toInt.toString + "GB/s" }
+      )
+
+      // Create a "time left" string
+      val s_left = (
+        if (tleft < 60) s"$tleft seconds left ($s_speed)"
+        else if (tleft < 60 * 60) { (tleft / 60).toString + s" minutes left ($s_speed)" }
+        else if (tleft < 60 * 60 * 24) { (tleft / 60 / 60).toString + s" hours left ($s_speed)" }
+        else { (tleft / 60 / 60 / 24).toString + s" days left ($s_speed)" }
+      )
+
       // Update the spinner
       runOnUiThread {
         notificationManager.notify(0,
-          builder.setProgress(size.toInt, progress.toInt, false).build
+          builder
+          .setProgress(size.toInt, progress.toInt, false)
+          .setContentText(s_left)
+          .build
         )
       }
 
@@ -127,13 +158,14 @@ class BeamService extends IntentService("SSH Beam") {
       // Update running state and progress
       isRunning = true
       progress = 0L
+      startTime = System.currentTimeMillis
 
       // Update the spinner
       runOnUiThread {
         notificationManager.notify(0,
           builder.setProgress(size.toInt, progress.toInt, false)
-                 .setContentText(dest)
                  .setOngoing(true)
+                 .setContentText("Connected")
                  .build
         )
       }
