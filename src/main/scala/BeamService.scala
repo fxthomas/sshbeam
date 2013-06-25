@@ -41,10 +41,7 @@ class BeamService extends IntentService("SSH Beam") {
     }
 
     val share = intent.getStringExtra("s_type") match {
-      case "uri" => UriSharedObject(
-        intent.getParcelableExtra("s_uri").asInstanceOf[Uri]
-      )
-
+      case "uri" => UriSharedObject(intent.getData)
       case "text" => TextSharedObject(
         intent.getStringExtra("s_fname"),
         intent.getStringExtra("s_contents")
@@ -166,9 +163,6 @@ class BeamService extends IntentService("SSH Beam") {
     username: String,
     auth: String) {
 
-    // Create the input stream
-    val is = share.inputStream
-
     def sendPublicKey(implicit monitor: SftpProgressMonitor) = {
       // Create the session
       val sftp = new SftpServer(server, port, username)
@@ -186,6 +180,7 @@ class BeamService extends IntentService("SSH Beam") {
 
     def send(session: SftpSession)(implicit monitor: SftpProgressMonitor) = {
       // Send the file
+      val is = share.inputStream
       try {
         session.connect
         session.cd(destination)

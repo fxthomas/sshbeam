@@ -114,7 +114,8 @@ class BeamTransferFragment extends Fragment {
     shouldSavePassword: Boolean,
     password: Option[String]) = {
 
-    val intent = new Intent("io.github.fxthomas.sshbeam.BeamService")
+    val intent = new Intent
+    intent.setAction("io.github.fxthomas.sshbeam.Beam")
     intent.putExtra("filename", filename)
     intent.putExtra("server", server)
     intent.putExtra("username", username)
@@ -126,8 +127,9 @@ class BeamTransferFragment extends Fragment {
     // This is YUCK. Rewrite that with Parcelable.
     share match {
       case UriSharedObject(uri) => {
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         intent.putExtra("s_type", "uri")
-        intent.putExtra("s_uri", uri)
+        intent.setData(uri)
       }
 
       case TextSharedObject(fname, contents) => {
