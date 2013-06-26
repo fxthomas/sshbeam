@@ -11,6 +11,9 @@ import android.view._
 import org.scaloid.common._
 
 import com.jcraft.jsch.SftpProgressMonitor
+import com.jcraft.jsch.JSchException
+import java.net.ConnectException
+import java.net.SocketException
 
 import Sftp._
 import Helpers._
@@ -74,32 +77,34 @@ class BeamService extends IntentService("SSH Beam") {
       session.connect
       session.cd(destination)
       session.put(filename, is)
-    } catch {
-      case e: Throwable => runOnUiThread {
-        notificationManager.notify(0,
-          builder.setProgress(0, 0, false)
-                 .setTicker("Transfer failed")
-                 .setContentText(e.getMessage)
-                 .build
-        )
-        e.printStackTrace
-      }
-    } finally {
-      session.disconnect
-      is.close
-    }
+    } catch { case e: Throwable => failWith(e)
+    } finally { session.disconnect; is.close }
 
+    // Stop the foreground service
     stopForeground(false)
   }
 
-  override def onDestroy {
-    runOnUiThread {
-      toast("Service destroyed...")
-      stopForeground(false)
-      notificationManager.notify(0,
-        builder.setOngoing(false).setProgress(0, 0, false).build)
+  def failWith(e: Throwable) = {
+    val message = e match {
+      case ex: JSchException => Option(ex.getCause) match {
+        case Some(_: ConnectException) => "Connection failed"
+        case Some(_: SocketException) => "Transfer interrupted"
+        case Some(exc: Throwable) => exc.getMessage
+        case _ => ex.getMessage
+      }
+      case _ => e.getMessage
     }
-    super.onDestroy
+
+    runOnUiThread {
+      notificationManager.notify(0,
+        builder.setProgress(0, 0, false)
+        .setTicker("Transfer failed")
+        .setOngoing(false)
+        .setContentText(message)
+        .build
+      )
+    }
+    e.printStackTrace
   }
 
   case class Monitor(filename: String, size: Long) extends SftpProgressMonitor {

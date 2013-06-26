@@ -82,9 +82,15 @@ with TypedActivity {
 
     // Send the file if send is clicked
     vsend onClick {
-      beamParams.authMethod match {
-        case "public_key" => generateKey { _ => createTransferIntent }
-        case _ => createTransferIntent
+      if (beamParams.server.server.isEmpty) toast("Server address is required")
+      else if (beamParams.server.username.isEmpty) toast("User name is required")
+      else if (beamParams.server.port == 0) toast("Invalid port")
+      else if (beamParams.filename.isEmpty) toast("Filename is required")
+      else {
+        beamParams.authMethod match {
+          case "public_key" => generateKey { _ => createTransferIntent }
+          case _ => createTransferIntent
+        }
       }
     }
   }
@@ -126,13 +132,18 @@ with TypedActivity {
   }
 
   override def onOptionsItemSelected(item: MenuItem): Boolean = item.getItemId match {
-    case R.id.ui_sharekey => generateKey {
-      pk: SftpKey => {
-        val intent = new Intent
-        intent.setAction(Intent.ACTION_SEND)
-        intent.putExtra(Intent.EXTRA_TEXT, pk.publicKey)
-        intent.setType("text/plain")
-        startActivity(intent)
+    case R.id.ui_sharekey => {
+      if (beamParams.server.server.isEmpty) toast("Server address is required")
+      else if (beamParams.server.username.isEmpty) toast("User name is required")
+      else if (beamParams.server.port == 0) toast("Invalid port")
+      else generateKey {
+        pk: SftpKey => {
+          val intent = new Intent
+          intent.setAction(Intent.ACTION_SEND)
+          intent.putExtra(Intent.EXTRA_TEXT, pk.publicKey)
+          intent.setType("text/plain")
+          startActivity(intent)
+        }
       }
     }
 
