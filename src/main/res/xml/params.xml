@@ -15,6 +15,7 @@
             android:key="ssh_transfer_destination"
             android:summary="Destination directory on the remote server"
             android:inputType="textNoSuggestions"
+            android:defaultValue="/home/"
             android:title="Destination" />
 
     </PreferenceCategory>
@@ -26,6 +27,7 @@
         <EditTextPreference
             android:key="ssh_server_address"
             android:inputType="textNoSuggestions"
+            android:defaultValue=""
             android:title="Address" />
 
         <EditTextPreference

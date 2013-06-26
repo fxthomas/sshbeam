@@ -55,15 +55,15 @@ class BeamService extends IntentService("SSH Beam") {
     val auth = intent.getParcelableExtra(EXTRA_AUTH).asInstanceOf[SftpAuth]
 
     // Start the notification
-    runOnUiThread {
-      startForeground(0,
+    runOnUiThread(
+      startForeground(1,
         builder
         .setTicker("Starting transfer")
         .setContentTitle(filename)
         .setContentText("Starting transfer")
         .setOngoing(true).build
       )
-    }
+    )
 
     // Create the session and the monitor
     val session = server.createSession(auth)
@@ -80,16 +80,26 @@ class BeamService extends IntentService("SSH Beam") {
           builder.setProgress(0, 0, false)
                  .setTicker("Transfer failed")
                  .setContentText(e.getMessage)
-                 .setOngoing(false)
                  .build
         )
         e.printStackTrace
-        runOnUiThread { stopForeground(false) }
       }
     } finally {
       session.disconnect
       is.close
     }
+
+    stopForeground(false)
+  }
+
+  override def onDestroy {
+    runOnUiThread {
+      toast("Service destroyed...")
+      stopForeground(false)
+      notificationManager.notify(0,
+        builder.setOngoing(false).setProgress(0, 0, false).build)
+    }
+    super.onDestroy
   }
 
   case class Monitor(filename: String, size: Long) extends SftpProgressMonitor {
@@ -111,7 +121,6 @@ class BeamService extends IntentService("SSH Beam") {
                  .setOngoing(false)
                  .build
         )
-        stopForeground(false)
       }
     }
 
@@ -142,7 +151,7 @@ class BeamService extends IntentService("SSH Beam") {
 
       // Update the spinner
       runOnUiThread {
-        notificationManager.notify(0,
+        startForeground(1,
           builder
           .setProgress(size.toInt, progress.toInt, false)
           .setContentText(s_left)
@@ -162,7 +171,7 @@ class BeamService extends IntentService("SSH Beam") {
 
       // Update the spinner
       runOnUiThread {
-        notificationManager.notify(0,
+        startForeground(1,
           builder.setProgress(size.toInt, progress.toInt, false)
                  .setOngoing(true)
                  .setContentText("Connected")
