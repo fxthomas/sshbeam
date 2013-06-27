@@ -27,14 +27,46 @@ class BeamService extends IntentService("SSH Beam") {
 
   import BeamService._
 
+  // Context
   implicit val ctx = this
 
+  // Boolean used to stop the service
+  private var isRunning = true
+
+  // Cancel intent
+  lazy val cancelIntent = PendingIntent.getBroadcast(this, 0, new Intent("io.github.fxthomas.sshbeam.CancelBeam"), 0)
+
+  // Broadcast receiver
+  class CancelIntentReceiver extends BroadcastReceiver {
+    override def onReceive(context: Context, intent: Intent) {
+      if (intent.getAction == "io.github.fxthomas.sshbeam.CancelBeam") {
+        isRunning = false
+        runOnUiThread(
+          startForeground(1,
+            finishedBuilder
+            .setContentText("Cancelling...")
+            .build
+          )
+        )
+      }
+    }
+  }
+
   // Configure the notification
-  lazy val builder = new Notification.Builder(ctx)
-    .setContentTitle("Transfer in progress")
+  lazy val ongoingBuilder = new Notification.Builder(ctx)
+    .setContentTitle("SSH Beam")
     .setContentText("Preparing transfer")
     .setSmallIcon(R.drawable.icon_ticker)
     .setProgress(1, 0, false)
+    .setOngoing(true)
+    .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelIntent)
+
+  // Finished notification
+  lazy val finishedBuilder = new Notification.Builder(ctx)
+    .setContentTitle("SSH Beam")
+    .setContentText("Done")
+    .setSmallIcon(R.drawable.icon_ticker)
+    .setOngoing(false)
 
   // Notification manager
   def notificationManager = getSystemService(Context.NOTIFICATION_SERVICE).asInstanceOf[NotificationManager]
@@ -57,16 +89,23 @@ class BeamService extends IntentService("SSH Beam") {
     val server = intent.getParcelableExtra(EXTRA_SERVER).asInstanceOf[SftpServer]
     val auth = intent.getParcelableExtra(EXTRA_AUTH).asInstanceOf[SftpAuth]
 
+    // Set the filename in the notifications
+    ongoingBuilder.setContentTitle(filename)
+    finishedBuilder.setContentTitle(filename)
+
     // Start the notification
     runOnUiThread(
       startForeground(1,
-        builder
+        ongoingBuilder
         .setTicker("Starting transfer")
-        .setContentTitle(filename)
         .setContentText("Starting transfer")
-        .setOngoing(true).build
+        .build
       )
     )
+
+    // Register the intent receiver
+    val cancelIntentReceiver = new CancelIntentReceiver
+    registerReceiver(cancelIntentReceiver, new IntentFilter("io.github.fxthomas.sshbeam.CancelBeam"))
 
     // Create the session and the monitor
     val session = server.createSession(auth)
@@ -77,14 +116,15 @@ class BeamService extends IntentService("SSH Beam") {
       session.connect
       session.cd(destination)
       session.put(filename, is)
-    } catch { case e: Throwable => failWith(e)
+    } catch { case e: Throwable => failWith(filename, e)
     } finally { session.disconnect; is.close }
 
     // Stop the foreground service
     stopForeground(false)
+    unregisterReceiver(cancelIntentReceiver)
   }
 
-  def failWith(e: Throwable) = {
+  def failWith(filename: String, e: Throwable) = {
     val message = e match {
       case ex: JSchException => Option(ex.getCause) match {
         case Some(_: ConnectException) => "Connection failed"
@@ -95,9 +135,8 @@ class BeamService extends IntentService("SSH Beam") {
 
     runOnUiThread {
       notificationManager.notify(0,
-        builder.setProgress(0, 0, false)
+        finishedBuilder
         .setTicker("Transfer failed")
-        .setOngoing(false)
         .setContentText(message)
         .build
       )
@@ -108,58 +147,59 @@ class BeamService extends IntentService("SSH Beam") {
   case class Monitor(filename: String, size: Long) extends SftpProgressMonitor {
 
     def isComplete = (progress == size)
-    var isRunning = false
     var startTime = 0L
     var progress = 0L
 
     def end = {
       val message = if (isComplete) "Transfer complete!"
-                    else "Transfer failed"
+                    else if (isRunning) "Transfer failed"
+                    else "Transfer cancelled"
 
       runOnUiThread {
         notificationManager.notify(0,
-          builder.setProgress(0, 0, false)
-                 .setContentText(message)
-                 .setTicker(message)
-                 .setOngoing(false)
-                 .build
+          finishedBuilder
+          .setContentText(message)
+          .setTicker(message)
+          .build
         )
       }
     }
 
     def count(cnt: Long): Boolean = {
-      // Increment progress
-      progress += cnt
+      if (isRunning) {
+        // Increment progress
+        progress += cnt
 
-      // Estimate the time left
-      val telapsed = (System.currentTimeMillis - startTime).toDouble / 1000.
-      val speed = progress.toDouble / telapsed
-      val tleft = (size / speed - telapsed).toInt
+        // Estimate the time left
+        val telapsed = (System.currentTimeMillis - startTime).toDouble / 1000.
+        val speed = progress.toDouble / telapsed
+        val tleft = (size / speed - telapsed).toInt
 
-      // Create a "time left" string
-      val s_speed = (
-        if (speed < 1000.) s"${speed.toLong} B/s"
-        else if (speed < 1000000.) { (speed / 1000.).toInt.toString + "kB/s" }
-        else if (speed < 1000000000.) { (speed / 1000000.).toInt.toString + "MB/s" }
-        else { (speed / 1000000000.).toInt.toString + "GB/s" }
-      )
-
-      // Create a "time left" string
-      val s_left = (
-        if (tleft < 60) s"$tleft seconds left ($s_speed)"
-        else if (tleft < 60 * 60) { (tleft / 60).toString + s" minutes left ($s_speed)" }
-        else if (tleft < 60 * 60 * 24) { (tleft / 60 / 60).toString + s" hours left ($s_speed)" }
-        else { (tleft / 60 / 60 / 24).toString + s" days left ($s_speed)" }
-      )
-
-      // Update the spinner
-      runOnUiThread {
-        startForeground(1,
-          builder
-          .setProgress(size.toInt, progress.toInt, false)
-          .setContentText(s_left)
-          .build
+        // Create a "time left" string
+        val s_speed = (
+          if (speed < 1000.) s"${speed.toLong} B/s"
+          else if (speed < 1000000.) { (speed / 1000.).toInt.toString + "kB/s" }
+          else if (speed < 1000000000.) { (speed / 1000000.).toInt.toString + "MB/s" }
+          else { (speed / 1000000000.).toInt.toString + "GB/s" }
         )
+
+        // Create a "time left" string
+        val s_left = (
+          if (tleft < 60) s"$tleft seconds left ($s_speed)"
+          else if (tleft < 60 * 60) { (tleft / 60).toString + s" minutes left ($s_speed)" }
+          else if (tleft < 60 * 60 * 24) { (tleft / 60 / 60).toString + s" hours left ($s_speed)" }
+          else { (tleft / 60 / 60 / 24).toString + s" days left ($s_speed)" }
+        )
+
+        // Update the spinner
+        runOnUiThread {
+          startForeground(1,
+            ongoingBuilder
+            .setProgress(size.toInt, progress.toInt, false)
+            .setContentText(s_left)
+            .build
+          )
+        }
       }
 
       // Return running state
@@ -168,17 +208,16 @@ class BeamService extends IntentService("SSH Beam") {
 
     def init(op: Int, src: String, dest: String, max: Long) {
       // Update running state and progress
-      isRunning = true
       progress = 0L
       startTime = System.currentTimeMillis
 
       // Update the spinner
       runOnUiThread {
         startForeground(1,
-          builder.setProgress(size.toInt, progress.toInt, false)
-                 .setOngoing(true)
-                 .setContentText("Connected")
-                 .build
+          ongoingBuilder
+          .setProgress(size.toInt, progress.toInt, false)
+          .setContentText("Connected")
+          .build
         )
       }
     }
