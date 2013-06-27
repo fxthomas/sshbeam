@@ -57,6 +57,21 @@ object Helpers {
     }
 
     /**
+     * Returns `true` if the Uri content is available
+     */
+    def isAvailable(implicit ctx: Context) = {
+      try {
+        ctx.getContentResolver.openFileDescriptor(uri, "r")
+        true
+      } catch {
+        case e: Throwable => {
+          e.printStackTrace
+          false
+        }
+      }
+    }
+
+    /**
      * Opens an input stream
      */
     def inputStream(implicit ctx: Context) =

@@ -110,6 +110,12 @@ with TypedActivity {
       finish
     }
 
+    // Check if we can read the Uri
+    if (uri map (!_.isAvailable) getOrElse false) {
+      toast("Unable to share")
+      finish
+    }
+
     // Set default filename
     beamParams.filename =
       uri.flatMap(_.dataName)
