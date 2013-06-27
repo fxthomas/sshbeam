@@ -136,7 +136,7 @@ class BeamService extends IntentService("SSH Beam") {
       // Estimate the time left
       val telapsed = (System.currentTimeMillis - startTime).toDouble / 1000.
       val speed = progress.toDouble / telapsed
-      val tleft = (size / speed).toInt
+      val tleft = (size / speed - telapsed).toInt
 
       // Create a "time left" string
       val s_speed = (
