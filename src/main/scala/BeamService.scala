@@ -88,11 +88,9 @@ class BeamService extends IntentService("SSH Beam") {
     val message = e match {
       case ex: JSchException => Option(ex.getCause) match {
         case Some(_: ConnectException) => "Connection failed"
-        case Some(_: SocketException) => "Transfer interrupted"
-        case Some(exc: Throwable) => exc.getMessage
-        case _ => ex.getMessage
+        case _ => e.getRootCause.getMessage
       }
-      case _ => e.getMessage
+      case _ => e.getRootCause.getMessage
     }
 
     runOnUiThread {

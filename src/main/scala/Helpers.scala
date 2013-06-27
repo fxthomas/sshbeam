@@ -12,6 +12,10 @@ import java.io.File
 
 object Helpers {
 
+  implicit class ThrowableEx(val ex: Throwable) extends AnyVal {
+    def getRootCause: Throwable = if (ex.getCause == null) ex else ex.getCause.getRootCause
+  }
+
   implicit class UriEx(val uri: Uri) extends AnyVal {
 
     /**
