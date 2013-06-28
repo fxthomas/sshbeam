@@ -1,0 +1,45 @@
+/**
+ * Base CSS File (global.css)
+ * Created: Fri Jun 28 11:21:57 2013
+ *
+ * This CSS file is part of a website developped by François-Xavier Thomas.
+ * You are free to copy, adapt or modify it.
+ * If you do so, however, leave my name somewhere in the credits, I'd appreciate it ;)
+ *
+ * @author François-Xavier Thomas <fx.thomas@gmail.com>
+ * @version 1.0
+ */
+
+* {
+	font-family: "Arial", "Helvetica", sans-serif;
+}
+
+body {
+  background-color: #111;
+  color: white;
+  padding: 5px;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  text-align: center;
+}
+
+img {
+  display: block;
+  width: 80%;
+  margin: 0 auto;
+}
+
+a {
+  color: #FE343C;
+  text-decoration: none;
+}
+
+.mentions {
+  font-style: italic;
+  color: #bbb;
+}
+
+em {
+  color: #FFD738;
+}

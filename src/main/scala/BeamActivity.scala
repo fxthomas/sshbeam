@@ -137,20 +137,24 @@ with TypedActivity {
     true
   }
 
-  override def onOptionsItemSelected(item: MenuItem): Boolean = item.getItemId match {
-    case R.id.ui_sharekey => {
-      if (beamParams.server.server.isEmpty) toast("Server address is required")
-      else if (beamParams.server.username.isEmpty) toast("User name is required")
-      else if (beamParams.server.port == 0) toast("Invalid port")
-      else generateKey {
-        pk: SftpKey => {
-          val intent = new Intent
-          intent.setAction(Intent.ACTION_SEND)
-          intent.putExtra(Intent.EXTRA_TEXT, pk.publicKey)
-          intent.setType("text/plain")
-          startActivity(intent)
+  override def onOptionsItemSelected(item: MenuItem): Boolean = {
+    item.getItemId match {
+      case R.id.ui_sharekey => {
+        if (beamParams.server.server.isEmpty) toast("Server address is required")
+        else if (beamParams.server.username.isEmpty) toast("User name is required")
+        else if (beamParams.server.port == 0) toast("Invalid port")
+        else generateKey {
+          pk: SftpKey => {
+            val intent = new Intent
+            intent.setAction(Intent.ACTION_SEND)
+            intent.putExtra(Intent.EXTRA_TEXT, pk.publicKey)
+            intent.setType("text/plain")
+            startActivity(intent)
+          }
         }
       }
+
+      case R.id.ui_help => startActivity(SIntent[BeamHelpActivity])
     }
 
     return true

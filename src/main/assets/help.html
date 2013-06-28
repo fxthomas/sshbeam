@@ -1,0 +1,102 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+	<head>
+		<title>SSH Beam Help</title>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+		<link rel="stylesheet" href="css/global.css" type="text/css" />
+	</head>
+
+	<body>
+
+    <p style="text-align: center; font-size: 0.9em;" class="mentions">This is the SSH Beam help. Just hit the <strong>"Share"</strong> button in any app to start using it!</p>
+
+    <img src="img/icon-store.png" alt="Store icon" style="width: 60%;" />
+
+    <h1>What is SSH Beam?</h1>
+
+    <p>
+    SSH Beam lets you use Android's system-wide <em>"Share"</em> feature to
+    <em>send stuff to a server via SSH/SFTP</em>.
+    </p>
+
+    <img src="img/share.png" alt="Share to SSH Beam" />
+
+    <p>
+    You can use it for a variety of purposes, for example :
+    </p>
+
+    <ul>
+      <li>Let <code>cron</code> create <em>blog posts</em> from incoming files</li>
+      <li>Send <em>torrents</em> to a directory watched by <code>rtorrent</code></li>
+      <li>Send pictures to a <em>shared directory</em></li>
+      <li>...and whatever you can think of!</li>
+    </ul>
+
+    <h1>Authentication</h1>
+
+    <p>
+    SSH Beam can, at the moment, use two types of authentication :
+    <em>password</em> and <em>public key</em>.
+    </p>
+
+    <p>
+    Public keys are generated on-the-fly by the app for each combination of a
+    server, port and username. Use the <em>Share public key</em> menu item to
+    send it through another app, then set it up on your server.
+    </p>
+
+    <img src="img/pubkey-share.png" alt="Share public key" />
+
+    <p>
+    Both public keys and passwords are <em>saved unencrypted</em> in the app's
+    local storage. This is not accessible by any other than the app itself or
+    <code>root</code>, but I thought you might want to know.
+    </p>
+
+    <h1>Issues, suggestions</h1>
+
+    <p>
+    Use the <a href="https://github.com/fxthomas/sshbeam/issues">issue
+      tracker</a> on GitHub to send feedback, it'll be much easier to track it.
+    Of course, feel free to leave your comments on the Play Store too!
+    </p>
+
+    <h1>Credits</h1>
+
+    <p>
+    Whoa, you really read all that, down to the credits? Nice to meet you,
+    I'm François-Xavier, a French student in software engineering!
+    </p>
+
+    <p>
+    This app was written in Scala using <a
+      href="https://github.com/jberkel/android-plugin">SBT-Android</a> as
+    part of a final year project with my engineering school <a
+      href="http://telecom-paristech.fr/">Télécom ParisTech</a>.
+    </p>
+
+    <p>
+    If interested, you can check out :
+    </p>
+
+    <ul>
+      <li>The <a href="https://github.com/fxthomas/sshbeam">source</a> on GitHub</li>
+      <li>My Google+ <a href="https://plus.google.com/111834675378115409903/about">profile</a></li>
+    </ul>
+
+    <p class="mentions">
+    Icon under CC-BY-SA by <a href="http://dutchicon.com/">Dutch Icon</a> (via
+    <a
+      href="http://www.smashingmagazine.com/2012/11/11/dutch-icon-set-smashing-edition/">Smashing
+      Magazine</a>), since I don't really have the time to make a cool icon.
+    Thanks a lot guys!
+    </p>
+
+    <p class="mentions">
+    I'm also using some parts of the <a href="http://www.scaloid.org">Scaloid</a> library.
+    </p>
+
+	</body>
+</html>
+
