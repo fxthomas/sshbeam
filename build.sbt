@@ -24,3 +24,6 @@ libraryDependencies += "org.scaloid" % "scaloid" % "1.1_8_2.10"
 
 // Proguard options
 proguardOptions += "-keep class com.jcraft.jsch.** { *; }"
+
+// Release key alias
+keyalias := "fx_applications"
