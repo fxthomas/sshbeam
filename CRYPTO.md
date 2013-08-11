@@ -1,13 +1,14 @@
-
 Some notes on US crypto laws when publishing on the Play Store
 ==============================================================
 
 Basically, use of SSL, TLS, SSH or any other crypto protocol, even widely used
 or publicly accessible, is subject to US crypto laws.
 
-In a nutshell, SSH crypto =>
-Notification to crypt@bis.doc.gov and to enc@nsa.gov + updates when source
-location changed. _For public-source, freely available software only!_
+For _free of charge, open-source software_, a notification must be sent to
+crypt@bis.doc.gov and enc@nsa.gov each time the cryptography components change.
+
+[This answer](http://stackoverflow.com/questions/2325452) seems to indicate
+that you do not need to wait for an answer. I acted upon it, but I could be wrong there.
 
 ---------------------------------------------------------------------
 
