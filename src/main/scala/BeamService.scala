@@ -7,6 +7,7 @@ import android.net._
 import android.provider._
 import android.preference._
 import android.view._
+import android.support.v4.app._
 
 import org.scaloid.common._
 
@@ -53,7 +54,7 @@ class BeamService extends IntentService("SSH Beam") {
   }
 
   // Configure the notification
-  lazy val ongoingBuilder = new Notification.Builder(ctx)
+  lazy val ongoingBuilder = new NotificationCompat.Builder(ctx)
     .setContentTitle("SSH Beam")
     .setContentText("Preparing transfer")
     .setSmallIcon(R.drawable.icon_ticker)
@@ -62,7 +63,7 @@ class BeamService extends IntentService("SSH Beam") {
     .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Cancel", cancelIntent)
 
   // Finished notification
-  lazy val finishedBuilder = new Notification.Builder(ctx)
+  lazy val finishedBuilder = new NotificationCompat.Builder(ctx)
     .setContentTitle("SSH Beam")
     .setContentText("Done")
     .setSmallIcon(R.drawable.icon_ticker)

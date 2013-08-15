@@ -14,13 +14,16 @@ versionCode := 11
 scalaVersion := "2.10.1"
 
 // Version of the Android platform SDK
-platformName := "android-16"
+platformName := "android-14"
 
 // Add JSch (SSH library)
 libraryDependencies += "com.jcraft" % "jsch" % "0.1.50"
 
 // Scaloid
 libraryDependencies += "org.scaloid" % "scaloid" % "1.1_8_2.10"
+
+// Support library
+libraryDependencies += "com.android.support" % "support-v4" % "13.0.0"
 
 // Proguard options
 proguardOptions += "-keep class com.jcraft.jsch.** { *; }"
